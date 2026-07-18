@@ -8,7 +8,7 @@ test.describe('first-run and login', () => {
 
 		await expect(page).toHaveTitle(/Shayfin/);
 		await expect(page.getByText('Connect Jellyfin', { exact: true })).toBeVisible();
-		await expect(page.getByLabel('One-time setup code')).toBeVisible();
+		await expect(page.getByText(/verify a Jellyfin administrator to finish setup/)).toBeVisible();
 		await expect(page.getByLabel('Public Jellyfin URL')).toHaveValue('http://localhost:8096');
 		await expect(page.getByLabel(/Internal Jellyfin URL/)).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Connect server' })).toBeDisabled();

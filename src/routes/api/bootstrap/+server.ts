@@ -1,7 +1,6 @@
 import { getConfigStore } from '$lib/server/config';
 import type { BootstrapResponse } from '$lib/server/contracts';
 import { errorResponse } from '$lib/server/errors';
-import { getSetupToken } from '$lib/server/setup';
 import { APP_VERSION } from '$lib/server/version';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
@@ -10,7 +9,6 @@ export const GET: RequestHandler = async () => {
 	try {
 		const config = await getConfigStore().read();
 		if (!config.jellyfin) {
-			getSetupToken();
 			return json({ configured: false, version: APP_VERSION } satisfies BootstrapResponse);
 		}
 

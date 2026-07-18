@@ -22,7 +22,6 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Spinner } from '$lib/components/ui/spinner';
 
-	let setupCode = $state('');
 	let publicUrl = $state('http://localhost:8096');
 	let internalUrl = $state('');
 	let username = $state('');
@@ -72,10 +71,12 @@
 			const response = await fetch('/api/setup/complete', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ setupCode, jellyfinPublicUrl, jellyfinInternalUrl, jellyfinToken })
+				body: JSON.stringify({ jellyfinPublicUrl, jellyfinInternalUrl, jellyfinToken })
 			});
-			const payload = (await response.json()) as { error?: string };
-			if (!response.ok) throw new Error(payload.error ?? 'Shayfin setup could not be completed.');
+			const payload = (await response.json()) as { error?: { message?: string } };
+			if (!response.ok) {
+				throw new Error(payload.error?.message ?? 'Shayfin setup could not be completed.');
+			}
 			toast.success('Shayfin is connected to Jellyfin.');
 			window.location.assign(resolve('/login'));
 		} catch (error) {
@@ -123,8 +124,7 @@
 				<div class="flex flex-col gap-1">
 					<CardTitle>Connect Jellyfin</CardTitle>
 					<CardDescription
-						>Enter the one-time code printed in the container logs, then verify a Jellyfin
-						administrator.</CardDescription
+						>Connect your server and verify a Jellyfin administrator to finish setup.</CardDescription
 					>
 				</div>
 			</CardHeader>
@@ -137,13 +137,6 @@
 				{/if}
 				<form onsubmit={submit}>
 					<Field.Group>
-						<Field.Field>
-							<Field.Label for="setup-code">One-time setup code</Field.Label>
-							<Input id="setup-code" autocomplete="one-time-code" bind:value={setupCode} required />
-							<Field.Description
-								>Run <code>docker logs shayfin</code> to find the code.</Field.Description
-							>
-						</Field.Field>
 						<Field.Field>
 							<Field.Label for="public-url">Public Jellyfin URL</Field.Label>
 							<Input id="public-url" type="url" inputmode="url" bind:value={publicUrl} required />
@@ -189,11 +182,7 @@
 							>
 						</Alert>
 						<Field.Field>
-							<Button
-								type="submit"
-								class="w-full"
-								disabled={submitting || !setupCode || !username || !publicUrl}
-							>
+							<Button type="submit" class="w-full" disabled={submitting || !username || !publicUrl}>
 								{#if submitting}<Spinner data-icon="inline-start" />{:else}<ServerIcon
 										data-icon="inline-start"
 									/>{/if}

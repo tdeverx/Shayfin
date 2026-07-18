@@ -60,7 +60,6 @@ docker run --detach \
 	--cap-drop ALL \
 	--security-opt no-new-privileges \
 	--add-host host.docker.internal:host-gateway \
-	--env SHAYFIN_SETUP_TOKEN=smoke-test-only \
 	--mount "type=volume,source=$volume,target=/data" \
 	--publish 127.0.0.1::3000 \
 	"$image" >/dev/null
@@ -82,10 +81,9 @@ if [ "$uid" = "0" ]; then
 fi
 
 assert_request 503 /api/health/ready
-assert_request 401 /api/setup/complete POST "{\"setupCode\":\"wrong\",\"jellyfinPublicUrl\":\"$stub_url\",\"jellyfinInternalUrl\":\"$stub_url\",\"jellyfinToken\":\"admin-token\"}"
-assert_request 403 /api/setup/complete POST "{\"setupCode\":\"smoke-test-only\",\"jellyfinPublicUrl\":\"$stub_url\",\"jellyfinInternalUrl\":\"$stub_url\",\"jellyfinToken\":\"user-token\"}"
-assert_request 201 /api/setup/complete POST "{\"setupCode\":\"smoke-test-only\",\"jellyfinPublicUrl\":\"$stub_url\",\"jellyfinInternalUrl\":\"$stub_url\",\"jellyfinToken\":\"admin-token\"}"
-assert_request 409 /api/setup/complete POST "{\"setupCode\":\"smoke-test-only\",\"jellyfinPublicUrl\":\"$stub_url\",\"jellyfinInternalUrl\":\"$stub_url\",\"jellyfinToken\":\"admin-token\"}"
+assert_request 403 /api/setup/complete POST "{\"jellyfinPublicUrl\":\"$stub_url\",\"jellyfinInternalUrl\":\"$stub_url\",\"jellyfinToken\":\"user-token\"}"
+assert_request 201 /api/setup/complete POST "{\"jellyfinPublicUrl\":\"$stub_url\",\"jellyfinInternalUrl\":\"$stub_url\",\"jellyfinToken\":\"admin-token\"}"
+assert_request 409 /api/setup/complete POST "{\"jellyfinPublicUrl\":\"$stub_url\",\"jellyfinInternalUrl\":\"$stub_url\",\"jellyfinToken\":\"admin-token\"}"
 assert_request 200 /api/health/ready
 assert_request 200 /api/admin/integrations/seerr PUT "{\"enabled\":true,\"url\":\"$stub_url\",\"apiKey\":\"smoke-secret-key\"}" admin-token
 

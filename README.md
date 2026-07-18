@@ -26,18 +26,13 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000). On a fresh data volume, find the one-time setup code in the container logs:
-
-```sh
-docker compose logs shayfin
-```
+Open [http://localhost:3000](http://localhost:3000).
 
 The setup flow asks for:
 
-1. The setup code.
-2. A public Jellyfin URL reachable by every user's browser.
-3. An optional internal Jellyfin URL reachable from the Shayfin container.
-4. A temporary Jellyfin administrator login.
+1. A public Jellyfin URL reachable by every user's browser.
+2. An optional internal Jellyfin URL reachable from the Shayfin container.
+3. A temporary Jellyfin administrator login.
 
 The browser authenticates directly with Jellyfin. Shayfin revalidates the temporary access token, requires administrator status, stores the server identity, and does not store that token or the administrator password. Completing setup locks the setup endpoint for that data volume.
 
@@ -51,8 +46,6 @@ docker compose down              # stop Shayfin without deleting its data
 ```
 
 Do not add `--volumes` to `docker compose down` unless you intentionally want to erase Shayfin's configuration and return to first-run setup.
-
-Set `SHAYFIN_SETUP_TOKEN` in `.env` if you prefer a supplied first-run code. Otherwise Shayfin generates a random code at process startup and prints it to the logs. Do not expose container logs publicly.
 
 ### Persistent data
 
@@ -107,7 +100,7 @@ cp .env.example .env
 npm run dev
 ```
 
-The example environment sets `SHAYFIN_DATA_DIR=.data`, keeping development configuration out of the system `/data` path. `.data` is ignored by Git. A setup code appears in the development server output.
+The example environment sets `SHAYFIN_DATA_DIR=.data`, keeping development configuration out of the system `/data` path. `.data` is ignored by Git.
 
 Useful commands:
 
@@ -131,15 +124,14 @@ For integration and player validation, use real Jellyfin/Seerr/Servarr instances
 
 ## Environment variables
 
-| Variable              | Default                       | Purpose                                    |
-| --------------------- | ----------------------------- | ------------------------------------------ |
-| `HOST`                | `0.0.0.0` in the image        | Adapter-node listen address                |
-| `PORT`                | `3000`                        | Adapter-node listen port                   |
-| `ORIGIN`              | Compose uses `SHAYFIN_ORIGIN` | Exact externally visible Shayfin origin    |
-| `SHAYFIN_ORIGIN`      | `http://localhost:3000`       | Compose input used to set `ORIGIN`         |
-| `SHAYFIN_PORT`        | `3000`                        | Host port published by Compose             |
-| `SHAYFIN_DATA_DIR`    | `/data` in production         | Configuration and encryption-key directory |
-| `SHAYFIN_SETUP_TOKEN` | randomly generated            | Optional fixed first-run setup code        |
+| Variable           | Default                       | Purpose                                    |
+| ------------------ | ----------------------------- | ------------------------------------------ |
+| `HOST`             | `0.0.0.0` in the image        | Adapter-node listen address                |
+| `PORT`             | `3000`                        | Adapter-node listen port                   |
+| `ORIGIN`           | Compose uses `SHAYFIN_ORIGIN` | Exact externally visible Shayfin origin    |
+| `SHAYFIN_ORIGIN`   | `http://localhost:3000`       | Compose input used to set `ORIGIN`         |
+| `SHAYFIN_PORT`     | `3000`                        | Host port published by Compose             |
+| `SHAYFIN_DATA_DIR` | `/data` in production         | Configuration and encryption-key directory |
 
 ## Health endpoints
 
