@@ -3,6 +3,7 @@
 	import UserIcon from '@lucide/svelte/icons/user';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
+	import TrophyIcon from '@lucide/svelte/icons/trophy';
 	import * as Avatar from '$lib/components/ui/avatar';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import type { AppUser } from '$lib/app/models';
@@ -47,6 +48,14 @@
 					<a href={resolve('/profile')} {...props}>
 						<UserIcon />
 						Profile
+					</a>
+				{/snippet}
+			</DropdownMenu.Item>
+			<DropdownMenu.Item>
+				{#snippet child({ props })}
+					<a href={resolve('/achievements')} {...props}>
+						<TrophyIcon />
+						Achievements
 					</a>
 				{/snippet}
 			</DropdownMenu.Item>

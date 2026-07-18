@@ -33,6 +33,15 @@ export function maskAdminSettings(config: AppConfig) {
 			seerr: maskIntegration(config.integrations.seerr),
 			sonarr: maskIntegration(config.integrations.sonarr),
 			radarr: maskIntegration(config.integrations.radarr)
+		},
+		plugins: {
+			homeScreenSections: { enabled: config.plugins.homeScreenSections?.enabled ?? true },
+			mediaBarEnhanced: { enabled: config.plugins.mediaBarEnhanced?.enabled ?? true },
+			achievementBadges: {
+				enabled: config.plugins.achievementBadges?.enabled ?? true,
+				unlockNotifications: config.plugins.achievementBadges?.unlockNotifications ?? true
+			},
+			getAvatar: { enabled: config.plugins.getAvatar?.enabled ?? true }
 		}
 	};
 }

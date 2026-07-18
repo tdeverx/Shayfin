@@ -65,7 +65,14 @@
 	$effect(() => {
 		const api = session.api;
 		const userId = session.user?.id;
-		if (!ready || !api || !userId) return;
+		if (
+			!ready ||
+			!api ||
+			!userId ||
+			session.bootstrap?.plugins?.achievementBadges.enabled === false ||
+			session.bootstrap?.plugins?.achievementBadges.unlockNotifications === false
+		)
+			return;
 		let active = true;
 		const poll = async () => {
 			const result = await new AchievementBadgesAdapter(api).getRecent(userId, 20);

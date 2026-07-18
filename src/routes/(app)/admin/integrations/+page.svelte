@@ -7,6 +7,7 @@
 	import AdminHeading from '../admin-heading.svelte';
 	import { adminFetch, type AdminSettings, type MaskedIntegration } from '../admin-client';
 	import IntegrationPanel from './integration-panel.svelte';
+	import PluginPanel from './plugin-panel.svelte';
 
 	type Service = 'seerr' | 'sonarr' | 'radarr';
 	let settings = $state<AdminSettings | null>(null);
@@ -46,6 +47,7 @@
 			<Tabs.Trigger value="seerr">Seerr</Tabs.Trigger>
 			<Tabs.Trigger value="sonarr">Sonarr</Tabs.Trigger>
 			<Tabs.Trigger value="radarr">Radarr</Tabs.Trigger>
+			<Tabs.Trigger value="plugins">Plugins</Tabs.Trigger>
 		</Tabs.List>
 		<Tabs.Content value="seerr"
 			><IntegrationPanel
@@ -68,6 +70,12 @@
 				onSaved={update}
 			/></Tabs.Content
 		>
+		<Tabs.Content value="plugins" class="grid gap-4">
+			<PluginPanel plugin="homeScreenSections" initial={settings.plugins.homeScreenSections} />
+			<PluginPanel plugin="mediaBarEnhanced" initial={settings.plugins.mediaBarEnhanced} />
+			<PluginPanel plugin="achievementBadges" initial={settings.plugins.achievementBadges} />
+			<PluginPanel plugin="getAvatar" initial={settings.plugins.getAvatar} />
+		</Tabs.Content>
 	</Tabs.Root>
 {:else if !error}
 	<div class="flex flex-col gap-4">

@@ -94,4 +94,19 @@ describe('ConfigStore', () => {
 		expect(config.integrations.seerr?.userMappings).toBeUndefined();
 		expect((await store.resolveIntegration('seerr'))?.apiKey).toBe('second-key');
 	});
+
+	it('defaults plugin capabilities on and persists explicit overrides', async () => {
+		const store = await temporaryStore();
+		await store.write({ schemaVersion: CONFIG_SCHEMA_VERSION, integrations: {}, plugins: {} });
+		expect((await store.read()).plugins.achievementBadges).toBeUndefined();
+
+		await store.setPluginIntegration('achievementBadges', {
+			enabled: false,
+			unlockNotifications: false
+		});
+		expect((await store.read()).plugins.achievementBadges).toEqual({
+			enabled: false,
+			unlockNotifications: false
+		});
+	});
 });

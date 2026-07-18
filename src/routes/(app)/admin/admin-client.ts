@@ -23,6 +23,12 @@ export interface AdminSettings {
 		serverVersion?: string;
 	} | null;
 	integrations: Record<'seerr' | 'sonarr' | 'radarr', MaskedIntegration>;
+	plugins: {
+		homeScreenSections: { enabled: boolean };
+		mediaBarEnhanced: { enabled: boolean };
+		achievementBadges: { enabled: boolean; unlockNotifications: boolean };
+		getAvatar: { enabled: boolean };
+	};
 }
 
 export interface NetworkDiagnostics {

@@ -50,7 +50,8 @@ export const POST: RequestHandler = async ({ request, fetch }) => {
 					serverName: server.name,
 					serverVersion: server.version
 				},
-				integrations: config.integrations
+				integrations: config.integrations,
+				plugins: config.plugins
 			};
 		});
 

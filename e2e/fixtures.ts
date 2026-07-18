@@ -245,6 +245,12 @@ export async function mockAuthenticatedApp(
 				seerr: { enabled: false, url: '', apiKeyConfigured: false, mappedUsers: 0 },
 				sonarr: { enabled: false, url: '', apiKeyConfigured: false },
 				radarr: { enabled: false, url: '', apiKeyConfigured: false }
+			},
+			plugins: {
+				homeScreenSections: { enabled: true },
+				mediaBarEnhanced: { enabled: true },
+				achievementBadges: { enabled: true, unlockNotifications: true },
+				getAvatar: { enabled: true }
 			}
 		} satisfies Record<string, unknown>);
 	await page.route('**/api/admin/settings', (route) => json(route, maskedSettings));
@@ -365,6 +371,62 @@ export async function mockAuthenticatedApp(
 					TotalHoursWatched: 128,
 					TotalItemsWatched: 233
 				});
+				return;
+			}
+			if (path.endsWith('/rank')) {
+				await json(route, {
+					Score: 1250,
+					Tier: { Name: 'Viewer', MinScore: 1000 },
+					NextTier: { Name: 'Regular', MinScore: 2000 },
+					ProgressToNext: 25,
+					Tiers: []
+				});
+				return;
+			}
+			if (path.endsWith('/bank')) {
+				await json(route, {
+					ScoreBank: 300,
+					LifetimeScore: 1450,
+					PrestigeLevel: 1,
+					ComboCount: 2,
+					BestComboCount: 5
+				});
+				return;
+			}
+			if (path.endsWith('/quests')) {
+				await json(route, {
+					Daily: [
+						{
+							Id: 'daily-1',
+							Title: 'Evening feature',
+							Description: 'Finish one movie.',
+							Current: 0,
+							Target: 1,
+							Reward: 25
+						}
+					],
+					Weekly: []
+				});
+				return;
+			}
+			if (path.endsWith('/watch-calendar')) {
+				await json(route, { Days: 90, Counts: { '2026-07-01': 2, '2026-07-02': 1 } });
+				return;
+			}
+			if (path.endsWith('/library-completion')) {
+				await json(route, { LibraryCompletionPercents: { Movies: 35 } });
+				return;
+			}
+			if (path.endsWith('/category-progress')) {
+				await json(route, [{ Category: 'Movies', Total: 2, Unlocked: 1, Percent: 50 }]);
+				return;
+			}
+			if (path.endsWith('/recap')) {
+				await json(route, { ItemsWatched: 8, MinutesWatched: 640 });
+				return;
+			}
+			if (path === '/Plugins/AchievementBadges/badges/rarity-stats') {
+				await json(route, { 'first-flight': 42.5, 'movie-night': 18 });
 				return;
 			}
 

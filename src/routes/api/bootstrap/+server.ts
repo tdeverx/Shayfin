@@ -22,6 +22,15 @@ export const GET: RequestHandler = async () => {
 					name: config.jellyfin.serverName,
 					version: config.jellyfin.serverVersion
 				}
+			},
+			plugins: {
+				homeScreenSections: { enabled: config.plugins.homeScreenSections?.enabled ?? true },
+				mediaBarEnhanced: { enabled: config.plugins.mediaBarEnhanced?.enabled ?? true },
+				achievementBadges: {
+					enabled: config.plugins.achievementBadges?.enabled ?? true,
+					unlockNotifications: config.plugins.achievementBadges?.unlockNotifications ?? true
+				},
+				getAvatar: { enabled: config.plugins.getAvatar?.enabled ?? true }
 			}
 		} satisfies BootstrapResponse);
 	} catch (error) {

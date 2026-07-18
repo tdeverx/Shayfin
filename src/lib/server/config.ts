@@ -9,6 +9,13 @@ import { normalizeServiceUrl } from './url';
 export const CONFIG_SCHEMA_VERSION = 1 as const;
 export const IntegrationNameSchema = z.enum(['seerr', 'sonarr', 'radarr']);
 export type IntegrationName = z.infer<typeof IntegrationNameSchema>;
+export const PluginIntegrationNameSchema = z.enum([
+	'homeScreenSections',
+	'mediaBarEnhanced',
+	'achievementBadges',
+	'getAvatar'
+]);
+export type PluginIntegrationName = z.infer<typeof PluginIntegrationNameSchema>;
 
 export type { EncryptedSecret } from './secret-vault';
 
@@ -38,13 +45,26 @@ const AppConfigSchema = z.object({
 			sonarr: StoredIntegrationSchema.optional(),
 			radarr: StoredIntegrationSchema.optional()
 		})
+		.default({}),
+	plugins: z
+		.object({
+			homeScreenSections: z.object({ enabled: z.boolean().default(true) }).optional(),
+			mediaBarEnhanced: z.object({ enabled: z.boolean().default(true) }).optional(),
+			achievementBadges: z
+				.object({
+					enabled: z.boolean().default(true),
+					unlockNotifications: z.boolean().default(true)
+				})
+				.optional(),
+			getAvatar: z.object({ enabled: z.boolean().default(true) }).optional()
+		})
 		.default({})
 });
 
 export type AppConfig = z.infer<typeof AppConfigSchema>;
 
 function emptyConfig(): AppConfig {
-	return { schemaVersion: CONFIG_SCHEMA_VERSION, integrations: {} };
+	return { schemaVersion: CONFIG_SCHEMA_VERSION, integrations: {}, plugins: {} };
 }
 
 function migrateConfig(raw: unknown): AppConfig {
@@ -189,6 +209,25 @@ export class ConfigStore {
 		const integration = (await this.read()).integrations[name];
 		if (!integration?.enabled || !integration.apiKey) return undefined;
 		return { ...integration, apiKey: await this.vault.decrypt(integration.apiKey) };
+	}
+
+	async setPluginIntegration(
+		name: PluginIntegrationName,
+		input: { enabled: boolean; unlockNotifications?: boolean }
+	): Promise<AppConfig['plugins'][PluginIntegrationName]> {
+		let saved: AppConfig['plugins'][PluginIntegrationName];
+		await this.update((config) => {
+			saved =
+				name === 'achievementBadges'
+					? {
+							enabled: input.enabled,
+							unlockNotifications: input.unlockNotifications ?? true
+						}
+					: { enabled: input.enabled };
+			config.plugins[name] = saved as never;
+			return config;
+		});
+		return saved;
 	}
 }
 

@@ -85,4 +85,10 @@ export interface BootstrapResponse {
 		publicUrl: string;
 		server: JellyfinServerIdentity;
 	};
+	plugins?: {
+		homeScreenSections: { enabled: boolean };
+		mediaBarEnhanced: { enabled: boolean };
+		achievementBadges: { enabled: boolean; unlockNotifications: boolean };
+		getAvatar: { enabled: boolean };
+	};
 }

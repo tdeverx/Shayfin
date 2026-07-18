@@ -7,8 +7,6 @@
 	import ImageIcon from '@lucide/svelte/icons/image';
 	import InboxIcon from '@lucide/svelte/icons/inbox';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
-	import SparklesIcon from '@lucide/svelte/icons/sparkles';
-	import TrophyIcon from '@lucide/svelte/icons/trophy';
 	import { toast } from 'svelte-sonner';
 	import { session } from '$lib/app/session.svelte';
 	import { readCache, userCacheKey, writeCache } from '$lib/app/data-cache';
@@ -17,20 +15,19 @@
 	import MediaHero from '$lib/components/app/media-hero.svelte';
 	import MediaRail from '$lib/components/app/media-rail.svelte';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
+	import * as Accordion from '$lib/components/ui/accordion';
 	import * as Avatar from '$lib/components/ui/avatar';
 	import { Badge, type BadgeVariant } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Empty from '$lib/components/ui/empty';
-	import { Progress } from '$lib/components/ui/progress';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import {
 		AchievementBadgesAdapter,
 		GetAvatarAdapter,
 		loadProfileMedia,
-		type AchievementProfile,
 		type AchievementBadge,
 		type AvatarOption
 	} from '$lib/jellyfin';
@@ -42,8 +39,7 @@
 	let favorites = $state<MediaCardModel[]>([]);
 	let requests = $state<NormalizedMediaRequest[]>([]);
 	let requestsAvailable = $state(false);
-	let achievements = $state<AchievementProfile | null>(null);
-	let achievementDegraded = $state(false);
+	let equippedBadges = $state<AchievementBadge[]>([]);
 	let avatars = $state<AvatarOption[]>([]);
 	let avatarAvailable = $state(false);
 	let avatarDialogOpen = $state(false);
@@ -57,8 +53,7 @@
 		favorites: MediaCardModel[];
 		requests: NormalizedMediaRequest[];
 		requestsAvailable: boolean;
-		achievements: AchievementProfile | null;
-		achievementDegraded: boolean;
+		equippedBadges: AchievementBadge[];
 		avatars: AvatarOption[];
 		avatarAvailable: boolean;
 		currentAvatarUrl?: string;
@@ -66,30 +61,6 @@
 
 	const PROFILE_CACHE_MS = 2 * 60_000;
 
-	let recordStats = $derived.by(() => {
-		if (!achievements) return [];
-		const records = achievements.records;
-		return [
-			{ label: 'Movies watched', value: records.moviesWatched },
-			{ label: 'Series completed', value: records.seriesCompleted },
-			{ label: 'Hours watched', value: records.totalHoursWatched },
-			{ label: 'Items watched', value: records.totalItemsWatched }
-		].filter((stat): stat is { label: string; value: number } => typeof stat.value === 'number');
-	});
-	let unlockedBadges = $derived(achievements?.badges.filter((badge) => badge.unlocked) ?? []);
-	let inProgressBadges = $derived.by(() =>
-		(achievements?.badges ?? [])
-			.filter((badge) => !badge.unlocked && badge.targetValue > 0)
-			.sort((a, b) => badgeProgress(b) - badgeProgress(a))
-	);
-	let achievementScanSuggested = $derived(
-		Boolean(
-			achievements &&
-			recentlyPlayed.length &&
-			achievements.summary.unlocked === 0 &&
-			achievements.badges.every((badge) => badge.currentValue === 0)
-		)
-	);
 	let lastWatched = $derived(recentlyPlayed[0]);
 	let avatarCategories = $derived.by(() => {
 		const groups = new SvelteMap<string, AvatarOption[]>();
@@ -99,11 +70,6 @@
 		}
 		return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right));
 	});
-
-	function badgeProgress(badge: AchievementBadge): number {
-		if (badge.targetValue <= 0) return badge.unlocked ? 100 : 0;
-		return Math.min(100, Math.max(0, (badge.currentValue / badge.targetValue) * 100));
-	}
 
 	onMount(async () => {
 		if (!session.user) await session.initialize();
@@ -125,8 +91,7 @@
 			favorites,
 			requests,
 			requestsAvailable,
-			achievements,
-			achievementDegraded,
+			equippedBadges,
 			avatars,
 			avatarAvailable,
 			currentAvatarUrl
@@ -138,8 +103,7 @@
 		favorites = snapshot.favorites;
 		requests = snapshot.requests;
 		requestsAvailable = snapshot.requestsAvailable;
-		achievements = snapshot.achievements;
-		achievementDegraded = snapshot.achievementDegraded;
+		equippedBadges = snapshot.equippedBadges;
 		avatars = snapshot.avatars;
 		avatarAvailable = snapshot.avatarAvailable;
 		currentAvatarUrl = snapshot.currentAvatarUrl;
@@ -175,16 +139,24 @@
 			if (!api || !user) throw new Error('Your Jellyfin session is not available.');
 
 			currentAvatarUrl = authenticatedImage(user.imageUrl);
-			const achievementsAdapter = new AchievementBadgesAdapter(api);
-			avatarAdapter = new GetAvatarAdapter(api);
+			const achievementsEnabled = session.bootstrap?.plugins?.achievementBadges.enabled !== false;
+			const avatarEnabled = session.bootstrap?.plugins?.getAvatar.enabled !== false;
+			const achievementsAdapter = achievementsEnabled ? new AchievementBadgesAdapter(api) : null;
+			avatarAdapter = avatarEnabled ? new GetAvatarAdapter(api) : null;
 			profileCacheKey ||= userCacheKey(session.bootstrap?.jellyfin?.server.id, user.id, 'profile');
 			const [mediaResult, requestResult, achievementResult, avatarResult, currentAvatarResult] =
 				await Promise.allSettled([
 					loadProfileMedia(api, user.id),
 					loadRequests(),
-					achievementsAdapter.getProfile(user.id, navigator.language),
-					avatarAdapter.list(),
-					avatarAdapter.current(user.id)
+					achievementsAdapter
+						? achievementsAdapter.getEquipped(user.id, navigator.language)
+						: Promise.resolve({ status: 'unavailable' as const, data: undefined }),
+					avatarAdapter
+						? avatarAdapter.list()
+						: Promise.resolve({ status: 'unavailable' as const, data: undefined }),
+					avatarAdapter
+						? avatarAdapter.current(user.id)
+						: Promise.resolve({ status: 'unavailable' as const, data: undefined })
 				]);
 
 			if (mediaResult.status === 'rejected') throw mediaResult.reason;
@@ -203,18 +175,12 @@
 				requests = [];
 			}
 
-			if (
+			equippedBadges =
 				achievementResult.status === 'fulfilled' &&
-				achievementResult.value.data &&
-				(achievementResult.value.status === 'available' ||
-					achievementResult.value.status === 'degraded')
-			) {
-				achievements = achievementResult.value.data;
-				achievementDegraded = achievementResult.value.status === 'degraded';
-			} else {
-				achievements = null;
-				achievementDegraded = false;
-			}
+				achievementResult.value.status === 'available' &&
+				achievementResult.value.data
+					? achievementResult.value.data
+					: [];
 
 			if (
 				avatarResult.status === 'fulfilled' &&
@@ -367,73 +333,14 @@
 			metadata={profileMetadata}
 		/>
 
-		{#if achievements}
-			<section aria-labelledby="achievement-summary" class="space-y-3">
-				<div class="flex flex-wrap items-center gap-2">
-					<h2 id="achievement-summary" class="text-lg font-medium tracking-tight">
-						Achievement summary
-					</h2>
-					{#if achievementDegraded}<Badge variant="outline">Partial data</Badge>{/if}
+		{#if equippedBadges.length}
+			<section class="space-y-3" aria-labelledby="equipped-badges">
+				<h2 id="equipped-badges" class="text-lg font-medium tracking-tight">Equipped badges</h2>
+				<div class="flex flex-wrap gap-2">
+					{#each equippedBadges as badge (badge.id)}<Badge variant="secondary"
+							><BadgeCheckIcon />{badge.title}</Badge
+						>{/each}
 				</div>
-				{#if achievementScanSuggested}
-					<Alert>
-						<AlertTitle>Achievement history may need a scan</AlertTitle>
-						<AlertDescription
-							>Your profile has recent Jellyfin activity, but the plugin reports no progress. An
-							administrator can run “Scan watch history” from the Achievement Badges plugin
-							settings.</AlertDescription
-						>
-					</Alert>
-				{/if}
-				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-					<Card.Root size="sm">
-						<Card.Header
-							><Card.Description>Badges unlocked</Card.Description><Card.Title class="text-2xl"
-								>{achievements.summary.unlocked} / {achievements.summary.total}</Card.Title
-							></Card.Header
-						>
-						<Card.Content
-							><Progress
-								value={achievements.summary.percentage}
-								aria-label="Achievement completion"
-							/></Card.Content
-						>
-					</Card.Root>
-					<Card.Root size="sm">
-						<Card.Header
-							><Card.Description>Achievement score</Card.Description><Card.Title class="text-2xl"
-								>{achievements.summary.score.toLocaleString()}</Card.Title
-							></Card.Header
-						>
-					</Card.Root>
-					<Card.Root size="sm">
-						<Card.Header
-							><Card.Description>Current watch streak</Card.Description><Card.Title class="text-2xl"
-								>{achievements.summary.currentWatchStreak} days</Card.Title
-							></Card.Header
-						>
-					</Card.Root>
-					<Card.Root size="sm">
-						<Card.Header
-							><Card.Description>Equipped badges</Card.Description><Card.Title class="text-2xl"
-								>{achievements.summary.equippedCount}</Card.Title
-							></Card.Header
-						>
-					</Card.Root>
-				</div>
-				{#if recordStats.length}
-					<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-						{#each recordStats as stat (stat.label)}
-							<Card.Root size="sm">
-								<Card.Header
-									><Card.Description>{stat.label}</Card.Description><Card.Title
-										>{stat.value.toLocaleString()}</Card.Title
-									></Card.Header
-								>
-							</Card.Root>
-						{/each}
-					</div>
-				{/if}
 			</section>
 		{/if}
 
@@ -448,9 +355,6 @@
 					>
 					{#if requestsAvailable}<Tabs.Trigger value="requests"
 							><InboxIcon data-icon="inline-start" />Requests</Tabs.Trigger
-						>{/if}
-					{#if achievements}<Tabs.Trigger value="achievements"
-							><TrophyIcon data-icon="inline-start" />Achievements</Tabs.Trigger
 						>{/if}
 				</Tabs.List>
 			</div>
@@ -540,87 +444,6 @@
 					{/if}
 				</Tabs.Content>
 			{/if}
-
-			{#if achievements}
-				<Tabs.Content value="achievements" class="space-y-5">
-					<section class="space-y-3">
-						<div>
-							<h2 class="text-lg font-medium tracking-tight">In progress</h2>
-							<p class="text-sm text-muted-foreground">
-								Progress is credited by Achievement Badges as you watch in Jellyfin.
-							</p>
-						</div>
-						{#if inProgressBadges.length}
-							<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-								{#each inProgressBadges.slice(0, 12) as badge (badge.id)}
-									<Card.Root size="sm">
-										<Card.Header>
-											<Card.Title>{badge.title}</Card.Title>
-											<Card.Description>{badge.description}</Card.Description>
-											<Card.Action><Badge variant="outline">{badge.category}</Badge></Card.Action>
-										</Card.Header>
-										<Card.Content class="space-y-2">
-											<Progress
-												value={badgeProgress(badge)}
-												aria-label={`${badge.title} progress`}
-											/>
-											<p class="text-xs text-muted-foreground">
-												{badge.currentValue.toLocaleString()} of {badge.targetValue.toLocaleString()}
-											</p>
-										</Card.Content>
-									</Card.Root>
-								{/each}
-							</div>
-						{:else}<p class="text-sm text-muted-foreground">
-								No achievements are currently in progress.
-							</p>{/if}
-					</section>
-
-					{#if achievements.equipped.length}
-						<section class="space-y-3">
-							<h2 class="text-lg font-medium tracking-tight">Equipped badges</h2>
-							<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-								{#each achievements.equipped as badge (badge.id)}
-									<Card.Root size="sm">
-										<Card.Header
-											><Card.Title class="flex items-center gap-2"
-												><BadgeCheckIcon />{badge.title}</Card.Title
-											><Card.Description>{badge.description}</Card.Description></Card.Header
-										>
-										<Card.Content><Badge variant="outline">{badge.rarity}</Badge></Card.Content>
-									</Card.Root>
-								{/each}
-							</div>
-						</section>
-					{/if}
-
-					<section class="space-y-3">
-						<h2 class="text-lg font-medium tracking-tight">Unlocked</h2>
-						{#if unlockedBadges.length}
-							<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-								{#each unlockedBadges as badge (badge.id)}
-									<Card.Root size="sm">
-										<Card.Header
-											><Card.Title class="flex items-center gap-2"
-												><SparklesIcon />{badge.title}</Card.Title
-											><Card.Description>{badge.description}</Card.Description></Card.Header
-										>
-										<Card.Content class="flex flex-wrap items-center gap-2"
-											><Badge variant="outline">{badge.rarity}</Badge>{#if badge.unlockedAt}<span
-													class="text-xs text-muted-foreground">{formatDate(badge.unlockedAt)}</span
-												>{/if}</Card.Content
-										>
-									</Card.Root>
-								{/each}
-							</div>
-						{:else}
-							<p class="text-sm text-muted-foreground">
-								No badges unlocked yet. Your progress is shown above.
-							</p>
-						{/if}
-					</section>
-				</Tabs.Content>
-			{/if}
 		</Tabs.Root>
 	{/if}
 </div>
@@ -630,37 +453,37 @@
 		<Dialog.Header>
 			<Dialog.Title>Choose an avatar</Dialog.Title>
 			<Dialog.Description
-				>Available avatars are supplied by GetAvatar for this Jellyfin server.</Dialog.Description
+				>Available avatars from GetAvatar, grouped by collection.</Dialog.Description
 			>
 		</Dialog.Header>
-		<div class="flex max-h-[65vh] flex-col gap-7 overflow-y-auto pr-1">
-			{#each avatarCategories as [category, categoryAvatars] (category)}
-				<section class="flex flex-col gap-3" aria-labelledby={`avatar-category-${category}`}>
-					<h2 id={`avatar-category-${category}`} class="text-sm font-medium text-muted-foreground">
-						{category}
-					</h2>
-					<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-						{#each categoryAvatars as avatar (avatar.id)}
-							<Button
-								variant="ghost"
-								class="h-auto min-w-0 flex-col gap-3 p-3"
-								disabled={changingAvatar !== null}
-								onclick={() => setAvatar(avatar)}
-							>
-								<Avatar.Root class="size-24 sm:size-28">
-									<Avatar.Image src={avatar.imageUrl} alt="" />
-									<Avatar.Fallback class="text-xl">{avatar.name.slice(0, 1)}</Avatar.Fallback>
-								</Avatar.Root>
-								<span class="w-full truncate text-sm">{avatar.name}</span>
-							</Button>
-						{/each}
-					</div>
-				</section>
-			{/each}
+		<div class="max-h-[70vh] overflow-y-auto pr-1">
+			<Accordion.Root type="multiple">
+				{#each avatarCategories as [category, categoryAvatars] (category)}
+					<Accordion.Item value={category}>
+						<Accordion.Trigger
+							>{category}<Badge variant="secondary">{categoryAvatars.length}</Badge
+							></Accordion.Trigger
+						>
+						<Accordion.Content>
+							<div class="grid grid-cols-3 gap-4 p-4 pt-1 sm:grid-cols-5 md:grid-cols-6">
+								{#each categoryAvatars as avatar (avatar.id)}
+									<button
+										class="mx-auto rounded-full ring-offset-background transition-transform outline-none hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+										aria-label={`Use ${avatar.name}`}
+										disabled={changingAvatar !== null}
+										onclick={() => setAvatar(avatar)}
+									>
+										<Avatar.Root class="size-20 sm:size-24">
+											<Avatar.Image src={avatar.imageUrl} alt="" />
+											<Avatar.Fallback class="text-xl">{avatar.name.slice(0, 1)}</Avatar.Fallback>
+										</Avatar.Root>
+									</button>
+								{/each}
+							</div>
+						</Accordion.Content>
+					</Accordion.Item>
+				{/each}
+			</Accordion.Root>
 		</div>
-		<Dialog.Footer
-			><Button variant="outline" onclick={() => (avatarDialogOpen = false)}>Close</Button
-			></Dialog.Footer
-		>
 	</Dialog.Content>
 </Dialog.Root>

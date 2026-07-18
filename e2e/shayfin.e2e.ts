@@ -191,7 +191,12 @@ test.describe('authenticated media shell', () => {
 		await expect(page.getByRole('button', { name: 'Toggle settings sidebar' })).toHaveCount(0);
 		await page.getByRole('button', { name: /Open .* profile menu/ }).click();
 		const profileMenu = page.getByRole('menu');
-		await expect(profileMenu.getByRole('menuitem')).toHaveText(['Profile', 'Settings', 'Sign out']);
+		await expect(profileMenu.getByRole('menuitem')).toHaveText([
+			'Profile',
+			'Achievements',
+			'Settings',
+			'Sign out'
+		]);
 	});
 
 	test('reuses a loaded media library when navigating away and back', async ({ page }) => {
@@ -402,29 +407,30 @@ test.describe('profile capabilities', () => {
 		});
 		await page.goto('/profile');
 
-		await expect(page.getByRole('heading', { name: 'Achievement summary' })).toBeVisible();
-		await expect(page.getByText('12 / 24', { exact: true })).toBeVisible();
-		await expect(page.getByText('Hours watched')).toBeVisible();
-		await expect(page.getByText('128', { exact: true })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Equipped badges' })).toBeVisible();
+		await expect(page.getByText('First Flight').first()).toBeVisible();
 
 		await page.getByRole('tab', { name: 'Requests' }).click();
 		await expect(page.getByText('Series · TMDB 444')).toBeVisible();
 		await expect(page.getByText('Seasons 1, 2')).toBeVisible();
 
-		await page.getByRole('tab', { name: 'Achievements' }).click();
-		await expect(page.getByRole('heading', { name: 'In progress' })).toBeVisible();
-		await expect(page.getByText('Movie Night')).toBeVisible();
-		await expect(page.getByText('4 of 10')).toBeVisible();
+		await page.goto('/achievements');
+		await expect(page.getByRole('heading', { name: 'Achievements' })).toBeVisible();
+		await expect(page.getByText('12 / 24', { exact: true })).toBeVisible();
+		await expect(page.getByText('Movie Night').first()).toBeVisible();
+		await expect(page.getByText('4 of 10').first()).toBeVisible();
+		await page.getByRole('tab', { name: 'Unlocked' }).click();
 		await expect(page.getByText('First Flight').first()).toBeVisible();
-		await expect(page.getByText('Rare').first()).toBeVisible();
+		await page.goto('/profile');
 
 		await page.getByRole('button', { name: 'Choose avatar' }).click();
 		const avatarDialog = page.getByRole('dialog', { name: 'Choose an avatar' });
-		await expect(avatarDialog.getByRole('heading', { name: 'Space' })).toBeVisible();
-		const orbitAvatar = avatarDialog.getByRole('button', { name: 'Orbit' });
+		await avatarDialog.getByRole('button', { name: /Space/ }).click();
+		const orbitAvatar = avatarDialog.getByRole('button', { name: 'Use Orbit' });
 		expect(
 			await orbitAvatar.locator('[data-slot="avatar"]').evaluate((element) => element.clientWidth)
 		).toBeGreaterThanOrEqual(96);
+		await expect(avatarDialog.getByRole('button', { name: 'Close' })).toHaveCount(1);
 		await orbitAvatar.click();
 		await expect(page.getByText('Avatar updated.')).toBeVisible();
 		expect(avatarSetBodies).toEqual([{ AvatarId: 'avatar-1', UserId: 'user-1' }]);
@@ -509,6 +515,12 @@ test.describe('download visibility and masked administration', () => {
 					},
 					sonarr: { enabled: false, url: '', apiKeyConfigured: false },
 					radarr: { enabled: false, url: '', apiKeyConfigured: false }
+				},
+				plugins: {
+					homeScreenSections: { enabled: true },
+					mediaBarEnhanced: { enabled: true },
+					achievementBadges: { enabled: true, unlockNotifications: true },
+					getAvatar: { enabled: true }
 				}
 			}
 		});

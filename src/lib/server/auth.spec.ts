@@ -19,7 +19,8 @@ async function configuredStore(): Promise<ConfigStore> {
 			serverId: 'server-1',
 			serverName: 'Home'
 		},
-		integrations: {}
+		integrations: {},
+		plugins: {}
 	});
 	return store;
 }

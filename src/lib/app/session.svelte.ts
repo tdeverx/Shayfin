@@ -14,6 +14,12 @@ export interface BootstrapState {
 		publicUrl: string;
 		server: { id: string; name: string; version?: string };
 	};
+	plugins?: {
+		homeScreenSections: { enabled: boolean };
+		mediaBarEnhanced: { enabled: boolean };
+		achievementBadges: { enabled: boolean; unlockNotifications: boolean };
+		getAvatar: { enabled: boolean };
+	};
 }
 
 const DEVICE_KEY = 'shayfin:device-id';

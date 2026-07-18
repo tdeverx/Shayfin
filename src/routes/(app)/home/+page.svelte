@@ -108,9 +108,14 @@
 		if (!background) error = null;
 		homeCacheKey ||= userCacheKey(session.bootstrap?.jellyfin?.server.id, userId, 'home');
 		try {
+			const flags = session.bootstrap?.plugins;
 			const [plugin, mediaBar] = await Promise.all([
-				new HomeScreenSectionsAdapter(api).loadHome(userId, navigator.language),
-				new MediaBarEnhancedAdapter(api).loadHero(userId)
+				flags?.homeScreenSections.enabled === false
+					? Promise.resolve({ status: 'unavailable' as const, data: undefined })
+					: new HomeScreenSectionsAdapter(api).loadHome(userId, navigator.language),
+				flags?.mediaBarEnhanced.enabled === false
+					? Promise.resolve({ status: 'unavailable' as const, data: undefined })
+					: new MediaBarEnhancedAdapter(api).loadHero(userId)
 			]);
 			sections = plugin.data?.length ? plugin.data : await loadDefaultHome(api, userId);
 			if (mediaBar.data?.items.length) {
