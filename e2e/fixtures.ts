@@ -44,6 +44,7 @@ export interface AuthenticatedMockOptions {
 	profileRequests?: Record<string, unknown>[] | null;
 	achievementsAvailable?: boolean;
 	getAvatarAvailable?: boolean;
+	homeSectionsAvailable?: boolean;
 	avatarSetBodies?: Record<string, unknown>[];
 	downloads?: MockDownload[];
 	downloadAuthorizations?: (string | null)[];
@@ -182,6 +183,7 @@ export async function mockAuthenticatedApp(
 		profileRequests = null,
 		achievementsAvailable = false,
 		getAvatarAvailable = false,
+		homeSectionsAvailable = false,
 		avatarSetBodies,
 		downloads = [],
 		downloadAuthorizations,
@@ -293,7 +295,36 @@ export async function mockAuthenticatedApp(
 		}
 
 		if (path === '/HomeScreen/Sections') {
+			if (homeSectionsAvailable) {
+				await json(route, {
+					Items: [
+						{
+							Section: 'continue',
+							DisplayText: 'Continue Watching / Next Up',
+							ViewMode: 'landscape',
+							OrderIndex: 0
+						},
+						{
+							Section: 'editorial',
+							DisplayText: 'Staff Picks',
+							ViewMode: 'landscape',
+							OrderIndex: 1
+						}
+					]
+				});
+				return;
+			}
 			await json(route, { error: 'Plugin not installed' }, 404);
+			return;
+		}
+
+		if (path === '/HomeScreen/Section/continue' && homeSectionsAvailable) {
+			await json(route, { Items: [resumeEpisode, nextEpisode] });
+			return;
+		}
+
+		if (path === '/HomeScreen/Section/editorial' && homeSectionsAvailable) {
+			await json(route, { Items: [latestMovie, favoriteMovie] });
 			return;
 		}
 

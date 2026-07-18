@@ -10,8 +10,9 @@ The application runs as one `adapter-node` container. It does not include nginx,
 - Jellyfin account login with administrator UI gated by `User.Policy.IsAdministrator`
 - Browser-direct Jellyfin images, API requests, WebSockets, and playback
 - Direct play, direct stream, and Jellyfin HLS transcoding with custom controls
-- Theme Songs and Media Segments support through Jellyfin APIs
-- Optional Home Screen Sections, Achievement Badges, and GetAvatar capabilities
+- Automatic detail-page Theme Songs and Media Segments support through Jellyfin APIs
+- Optional Media Bar Enhanced, Home Screen Sections, Achievement Badges, and GetAvatar capabilities
+- Muted local and YouTube trailer backdrops with artwork fallback
 - Optional Seerr discovery/requests and read-only Sonarr/Radarr download progress
 - System-selected light/dark theme using the VRR Luma/neutral token set
 
@@ -88,7 +89,9 @@ Configure integrations from the administrator sidebar. Credentials stay server-s
 
 Non-administrators only receive download entries joined to their Seerr requests. Administrators can inspect the complete normalized queue.
 
-Plugin support is capability-based. Shayfin reads supported plugin APIs and renders the data with its own shadcn-svelte components; it never injects Jellyfin Web scripts or plugin pages. Unknown Home Screen Sections are skipped and surfaced in administrator diagnostics.
+Plugin support is capability-based. Shayfin reads supported plugin APIs and renders the data with its own shadcn-svelte components; it never injects Jellyfin Web scripts or plugin pages. Media Bar Enhanced supplies the preferred rotating hero selection and trailer preferences. Without it, Shayfin promotes the first suitable Home Screen Sections row while skipping resume and next-up sections. Unknown Home Screen Sections are skipped and surfaced in administrator diagnostics.
+
+YouTube trailer URLs are resolved server-side with `youtubei.js` and streamed as muted HTML video so browser autoplay works without embedding YouTube's player UI. YouTube availability can still vary by video and deployment IP; Shayfin falls back to the Jellyfin artwork when a trailer cannot be resolved.
 
 ## Local development
 
@@ -142,4 +145,4 @@ For integration and player validation, use real Jellyfin/Seerr/Servarr instances
 
 Shayfin v1 supports one Jellyfin server per instance, Jellyfin accounts only, movies and episodic video, and desktop/mobile browsers.
 
-Deferred: TV remote/focus navigation, user-configurable themes/settings, full Jellyfin server administration, music libraries, Live TV, casting, offline downloads, multi-server switching, bundled TLS, injected plugin pages, Seasonals, Media Bar Enhanced, Jellystat, Achievement Badges social/economy features, and GetAvatar pool administration.
+Deferred: TV remote/focus navigation, user-configurable themes/settings, full Jellyfin server administration, music libraries, Live TV, casting, offline downloads, multi-server switching, bundled TLS, injected plugin pages, Seasonals, Jellystat, Achievement Badges social/economy features, and GetAvatar pool administration.

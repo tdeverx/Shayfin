@@ -21,7 +21,8 @@ export default defineConfig({
 					'img-src': ['self', 'data:', 'blob:', 'http:', 'https:'],
 					'media-src': ['self', 'blob:', 'http:', 'https:'],
 					'connect-src': ['self', 'http:', 'https:', 'ws:', 'wss:'],
-					'worker-src': ['self', 'blob:']
+					'worker-src': ['self', 'blob:'],
+					'frame-src': ['self']
 				}
 			},
 			compilerOptions: {

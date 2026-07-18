@@ -1,20 +1,20 @@
 <script lang="ts">
 	import InfoIcon from '@lucide/svelte/icons/info';
 	import PlayIcon from '@lucide/svelte/icons/play';
-	import MusicIcon from '@lucide/svelte/icons/music';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import type { SpotlightModel } from '$lib/app/models';
+	import type { HeroTrailer } from '$lib/jellyfin';
 
 	let {
 		item,
-		themeAudioAvailable = false,
-		onThemeAudio
+		trailer = null
 	}: {
 		item: SpotlightModel;
-		themeAudioAvailable?: boolean;
-		onThemeAudio?: () => void;
+		trailer?: HeroTrailer | null;
 	} = $props();
+
+	let trailerFailed = $state(false);
 </script>
 
 <section
@@ -27,6 +27,18 @@
 			alt=""
 			class="absolute inset-0 -z-20 size-full object-cover"
 		/>
+	{/if}
+	{#if trailer && !trailerFailed}
+		<video
+			src={trailer.url}
+			poster={item.backdropUrl ?? item.imageUrl}
+			autoplay
+			muted
+			loop
+			playsinline
+			onerror={() => (trailerFailed = true)}
+			class="absolute inset-0 z-[-15] size-full object-cover motion-reduce:hidden"
+		></video>
 	{/if}
 	<div class="absolute inset-0 -z-10 bg-gradient-to-r from-black via-black/65 to-transparent"></div>
 	<div
@@ -45,10 +57,10 @@
 				{item.overview}
 			</p>{/if}
 		<div class="flex flex-wrap items-center gap-2">
-			<Button href={`/watch/${item.id}`}>
-				<PlayIcon data-icon="inline-start" />
-				Play
-			</Button>
+			{#if item.kind !== 'series'}<Button href={`/watch/${item.id}`}>
+					<PlayIcon data-icon="inline-start" />
+					Play
+				</Button>{/if}
 			<Button
 				variant="outline"
 				href={item.href}
@@ -59,15 +71,4 @@
 			</Button>
 		</div>
 	</div>
-	{#if themeAudioAvailable}
-		<Button
-			variant="outline"
-			size="icon"
-			class="absolute right-4 bottom-4 rounded-full border-white/30 bg-black/20 text-white hover:bg-black/40 hover:text-white"
-			aria-label="Play theme music"
-			onclick={onThemeAudio}
-		>
-			<MusicIcon />
-		</Button>
-	{/if}
 </section>

@@ -80,6 +80,19 @@ test.describe('authenticated media shell', () => {
 		await expect(page.getByRole('heading', { name: 'Favorites' })).toBeVisible();
 	});
 
+	test('uses the whole first editorial row as the hero and skips continue watching', async ({
+		page
+	}) => {
+		await mockAuthenticatedApp(page, { homeSectionsAvailable: true });
+		await page.goto('/home');
+
+		await expect(page.getByRole('heading', { name: 'Signal Fire' })).toBeVisible();
+		await expect(page.getByRole('region', { name: 'Continue Watching / Next Up' })).toBeVisible();
+		await expect(page.getByRole('region', { name: 'Staff Picks' })).toHaveCount(0);
+		await page.getByRole('button', { name: 'Next featured item' }).click();
+		await expect(page.getByRole('heading', { name: 'Quiet Harbor' })).toBeVisible();
+	});
+
 	test('browses and filters the shared movie library', async ({ page }) => {
 		await mockAuthenticatedApp(page);
 		await page.goto('/movies');

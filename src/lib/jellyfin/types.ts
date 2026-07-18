@@ -85,6 +85,11 @@ export interface ThemeSong {
 	streamUrl: string;
 }
 
+export interface HeroTrailer {
+	kind: 'youtube' | 'jellyfin';
+	url: string;
+}
+
 export interface MediaSegment extends MediaSegmentDto {
 	startSeconds: number;
 	endSeconds: number;

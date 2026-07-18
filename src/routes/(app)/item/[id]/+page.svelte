@@ -3,7 +3,6 @@
 	import { resolve } from '$app/paths';
 	import { onDestroy } from 'svelte';
 	import HeartIcon from '@lucide/svelte/icons/heart';
-	import MusicIcon from '@lucide/svelte/icons/music';
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base-item-dto.js';
@@ -33,8 +32,9 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let favorite = $state(false);
-	let themeAvailable = $state(false);
+	let themeUrl = $state<string | null>(null);
 	let loadGeneration = 0;
+	let retryThemeOnInteraction: (() => void) | null = null;
 
 	let backdropUrl = $derived.by(() => {
 		const api = session.api;
@@ -68,24 +68,24 @@
 		item = null;
 		series = null;
 		selectedSeason = '';
-		themeAvailable = false;
+		themeUrl = null;
 		try {
 			const detail = await loadItemDetail(api, userId, itemId);
 			let seriesDetail: SeriesDetail | null = null;
 			if (detail.Type === 'Series' && detail.Id) {
 				seriesDetail = await loadSeriesDetail(api, userId, detail.Id);
 			}
-			let hasTheme = false;
-			if (detail.Id && session.themeAudioEnabled) {
+			let nextThemeUrl: string | null = null;
+			if (detail.Id) {
 				const songs = await loadThemeSongs(api, detail.Id, userId).catch(() => []);
-				hasTheme = songs.length > 0;
+				nextThemeUrl = songs[0]?.streamUrl ?? null;
 			}
 			if (generation !== loadGeneration) return;
 			item = detail;
 			favorite = detail.UserData?.IsFavorite === true;
 			series = seriesDetail;
 			selectedSeason = seriesDetail?.seasons.find((season) => season.Id)?.Id ?? '';
-			themeAvailable = hasTheme;
+			themeUrl = nextThemeUrl;
 		} catch (reason) {
 			if (generation === loadGeneration) {
 				error = reason instanceof Error ? reason.message : 'This item could not be loaded.';
@@ -111,18 +111,18 @@
 		}
 	}
 
-	async function playTheme() {
-		if (!session.api || !item?.Id) return;
-		if (!session.themeAudioEnabled) {
-			toast.info('Enable theme music from the sound button first.');
-			return;
-		}
+	async function playTheme(url: string) {
+		if (!session.themeAudioEnabled || url !== themeUrl) return;
 		try {
-			const songs = await loadThemeSongs(session.api, item.Id, session.user?.id);
-			if (!songs[0]) return;
-			await themeAudio.play(songs[0].streamUrl);
+			await themeAudio.play(url);
 		} catch {
-			toast.error('Theme music could not be played.');
+			if (!retryThemeOnInteraction) {
+				retryThemeOnInteraction = () => {
+					retryThemeOnInteraction = null;
+					void playTheme(url);
+				};
+				document.addEventListener('pointerdown', retryThemeOnInteraction, { once: true });
+			}
 		}
 	}
 
@@ -131,7 +131,17 @@
 		if (itemId) void load(itemId);
 	});
 
-	onDestroy(() => themeAudio.fadeAndStop());
+	$effect(() => {
+		const url = themeUrl;
+		if (session.themeAudioEnabled && url) queueMicrotask(() => void playTheme(url));
+		else themeAudio.fadeAndStop();
+	});
+
+	onDestroy(() => {
+		if (retryThemeOnInteraction)
+			document.removeEventListener('pointerdown', retryThemeOnInteraction);
+		themeAudio.fadeAndStop();
+	});
 </script>
 
 <svelte:head><title>{item?.Name ?? 'Details'} · Shayfin</title></svelte:head>
@@ -202,11 +212,6 @@
 							<HeartIcon data-icon="inline-start" />
 							{favorite ? 'Favorited' : 'Favorite'}
 						</Button>
-						{#if themeAvailable}
-							<Button variant="outline" onclick={playTheme}
-								><MusicIcon data-icon="inline-start" />Theme music</Button
-							>
-						{/if}
 					</div>
 				</div>
 			</div>

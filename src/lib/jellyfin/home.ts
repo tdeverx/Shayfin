@@ -61,6 +61,16 @@ export function mapDefaultHomeSections(data: DefaultHomeData): HomeSectionModel[
 	return sections.filter((section) => section.items.length > 0);
 }
 
+export function selectFallbackHeroSection(
+	sections: HomeSectionModel[]
+): HomeSectionModel | undefined {
+	return sections.find((section) => {
+		if (!section.items.length) return false;
+		const identity = `${section.id} ${section.title}`.toLowerCase();
+		return !/(continue|next[\s-]?up|resume|watching|download)/.test(identity);
+	});
+}
+
 export async function loadSpotlight(api: Api, userId: string, limit = 6): Promise<BaseItemDto[]> {
 	const response = await getItemsApi(api).getItems({
 		userId,

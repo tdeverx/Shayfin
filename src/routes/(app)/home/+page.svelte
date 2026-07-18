@@ -1,23 +1,24 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
-	import { toast } from 'svelte-sonner';
 	import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base-item-dto.js';
 	import {
 		HomeScreenSectionsAdapter,
+		MediaBarEnhancedAdapter,
 		loadDefaultHome,
-		loadThemeSongs,
+		resolveHeroTrailer,
+		selectFallbackHeroSection,
 		subscribeToInvalidations,
+		type HeroTrailer,
 		type HomeSectionModel
 	} from '$lib/jellyfin';
 	import DownloadStrip from '$lib/components/app/download-strip.svelte';
 	import CollectionFeature from '$lib/components/app/collection-feature.svelte';
 	import MediaRail from '$lib/components/app/media-rail.svelte';
-	import Spotlight from '$lib/components/app/spotlight.svelte';
+	import HeroCarousel from '$lib/components/app/hero-carousel.svelte';
 	import * as Empty from '$lib/components/ui/empty';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { session } from '$lib/app/session.svelte';
-	import { themeAudio } from '$lib/app/theme-audio';
 	import { toMediaCard, toSpotlight } from '$lib/app/media';
 	import type { DownloadModel, MediaSectionModel } from '$lib/app/models';
 	import type { DownloadProgress } from '$lib/server/contracts';
@@ -26,27 +27,30 @@
 	let downloads = $state<DownloadModel[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
-	let themeAvailable = $state(false);
-	let themeUrl = $state<string | null>(null);
-	let themeItemId = $state<string | null>(null);
-	let retryThemeOnInteraction: (() => void) | null = null;
+	let heroItems = $state<BaseItemDto[]>([]);
+	let heroSourceSectionId = $state<string | null>(null);
+	let heroTrailer = $state<HeroTrailer | null>(null);
+	let heroIntervalMs = $state(9000);
+	let trailerOverrides = $state<Record<string, string>>({});
+	let preferLocalTrailers = $state(false);
+	let onlyLocalTrailers = $state(false);
+	let heroLoadToken = 0;
 	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
-	let spotlight = $derived.by(() => {
+	let heroModels = $derived.by(() => {
 		const api = session.api;
-		const first = sections[0];
-		const item = first?.variant === 'collection' ? undefined : first?.items[0];
-		return api && item ? toSpotlight(api, item) : null;
+		return api
+			? heroItems.map((item) => toSpotlight(api, item)).filter((item) => item !== null)
+			: [];
 	});
 
 	let rails = $derived.by(() => {
 		const api = session.api;
 		if (!api) return [];
 		return sections
+			.filter((section) => section.id !== heroSourceSectionId)
 			.map((section, sectionIndex): MediaSectionModel => {
 				const seen = new SvelteSet<string>();
-				const promotedId =
-					sectionIndex === 0 && section.variant !== 'collection' ? section.items[0]?.Id : undefined;
 				return {
 					id: `${section.id}-${section.order}-${sectionIndex}`,
 					title: section.title,
@@ -60,7 +64,6 @@
 						.map((item) => toMediaCard(api, item, 'landscape')?.backdropUrl)
 						.find(Boolean),
 					items: section.items.flatMap((item) => {
-						if (item.Id === promotedId) return [];
 						const card = toMediaCard(
 							api,
 							item,
@@ -83,9 +86,28 @@
 		if (!api || !userId) return;
 		error = null;
 		try {
-			const plugin = await new HomeScreenSectionsAdapter(api).loadHome(userId, navigator.language);
+			const [plugin, mediaBar] = await Promise.all([
+				new HomeScreenSectionsAdapter(api).loadHome(userId, navigator.language),
+				new MediaBarEnhancedAdapter(api).loadHero(userId)
+			]);
 			sections = plugin.data?.length ? plugin.data : await loadDefaultHome(api, userId);
-			await probeTheme(sections[0]?.variant === 'collection' ? undefined : sections[0]?.items[0]);
+			if (mediaBar.data?.items.length) {
+				heroItems = mediaBar.data.items;
+				heroSourceSectionId = null;
+				heroIntervalMs = mediaBar.data.intervalMs;
+				trailerOverrides = mediaBar.data.trailerOverrides;
+				preferLocalTrailers = mediaBar.data.preferLocalTrailers;
+				onlyLocalTrailers = mediaBar.data.onlyLocalTrailers;
+			} else {
+				const fallback = selectFallbackHeroSection(sections);
+				heroItems = fallback?.items ?? [];
+				heroSourceSectionId = fallback?.id ?? null;
+				heroIntervalMs = 9000;
+				trailerOverrides = {};
+				preferLocalTrailers = false;
+				onlyLocalTrailers = false;
+			}
+			if (heroItems[0]?.Id) await selectHeroItem(heroItems[0].Id);
 		} catch (reason) {
 			error = reason instanceof Error ? reason.message : 'Your home screen could not be loaded.';
 		} finally {
@@ -93,54 +115,20 @@
 		}
 	}
 
-	async function probeTheme(item?: BaseItemDto) {
-		themeAvailable = false;
-		themeUrl = null;
-		themeItemId = null;
-		if (!session.api || !item?.Id) return;
-		const candidates = [item.Id, item.SeriesId].filter((id): id is string => Boolean(id));
-		for (const id of candidates) {
-			try {
-				const songs = await loadThemeSongs(session.api, id, session.user?.id);
-				if (songs[0]) {
-					themeAvailable = true;
-					themeUrl = songs[0].streamUrl;
-					themeItemId = id;
-					return;
-				}
-			} catch {
-				// Try the parent series when an episode has no theme of its own.
-			}
-		}
+	async function selectHeroItem(id: string) {
+		const item = heroItems.find((candidate) => candidate.Id === id);
+		const api = session.api;
+		const userId = session.user?.id;
+		if (!item || !api || !userId) return;
+		const token = ++heroLoadToken;
+		heroTrailer = null;
+		const trailer = await resolveHeroTrailer(api, item, userId, {
+			override: trailerOverrides[id],
+			preferLocal: preferLocalTrailers,
+			onlyLocal: onlyLocalTrailers
+		});
+		if (token === heroLoadToken) heroTrailer = trailer;
 	}
-
-	async function playTheme(manual = true) {
-		if (!themeUrl || !session.themeAudioEnabled) {
-			if (!manual) return;
-			toast.info('Enable theme music from the sound button first.');
-			return;
-		}
-		try {
-			await themeAudio.play(themeUrl);
-		} catch {
-			if (manual) toast.error('Theme music could not be played.');
-			else if (!retryThemeOnInteraction) {
-				retryThemeOnInteraction = () => {
-					retryThemeOnInteraction = null;
-					void playTheme(false);
-				};
-				document.addEventListener('pointerdown', retryThemeOnInteraction, { once: true });
-			}
-		}
-	}
-
-	$effect(() => {
-		const enabled = session.themeAudioEnabled;
-		const url = themeUrl;
-		const id = themeItemId;
-		if (enabled && url && id) queueMicrotask(() => void playTheme(false));
-		else themeAudio.fadeAndStop();
-	});
 
 	async function loadDownloads() {
 		if (!session.accessToken) return;
@@ -184,9 +172,6 @@
 			clearInterval(poll);
 			clearTimeout(refreshTimer);
 			document.removeEventListener('visibilitychange', visibility);
-			if (retryThemeOnInteraction)
-				document.removeEventListener('pointerdown', retryThemeOnInteraction);
-			themeAudio.fadeAndStop();
 		};
 	});
 </script>
@@ -223,10 +208,11 @@
 	</Empty.Root>
 {:else}
 	<div class="space-y-9">
-		{#if spotlight}<Spotlight
-				item={spotlight}
-				themeAudioAvailable={themeAvailable}
-				onThemeAudio={playTheme}
+		{#if heroModels.length}<HeroCarousel
+				items={heroModels}
+				intervalMs={heroIntervalMs}
+				trailer={heroTrailer}
+				onItemChange={selectHeroItem}
 			/>{/if}
 		<DownloadStrip {downloads} />
 		{#each rails as section (section.id)}

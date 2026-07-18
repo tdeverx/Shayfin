@@ -4,6 +4,9 @@ import { MediaSegmentType } from '@jellyfin/sdk/lib/generated-client/models/medi
 import { getLibraryApi } from '@jellyfin/sdk/lib/utils/api/library-api.js';
 import { getMediaSegmentsApi } from '@jellyfin/sdk/lib/utils/api/media-segments-api.js';
 import type { MediaSegment, ThemeSong } from './types.js';
+import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base-item-dto.js';
+import { PluginHttpClient } from './capabilities.js';
+import type { HeroTrailer } from './types.js';
 
 export interface ImageUrlOptions {
 	type?: ImageType;
@@ -163,4 +166,87 @@ export async function loadMediaSegments(api: Api, itemId: string): Promise<Media
 		}))
 		.filter((segment) => segment.endSeconds > segment.startSeconds)
 		.sort((a, b) => a.startSeconds - b.startSeconds);
+}
+
+export function youtubeVideoId(value: string | undefined): string | undefined {
+	if (!value) return undefined;
+	try {
+		const url = new URL(value);
+		if (url.hostname === 'youtu.be') return url.pathname.split('/').filter(Boolean)[0];
+		if (url.hostname.endsWith('youtube.com') || url.hostname.endsWith('youtube-nocookie.com')) {
+			return url.searchParams.get('v') ?? url.pathname.match(/\/(?:embed|shorts)\/([^/?]+)/)?.[1];
+		}
+	} catch {
+		return undefined;
+	}
+	return undefined;
+}
+
+function youtubeTrailer(api: Api, id: string): HeroTrailer {
+	return {
+		kind: 'youtube',
+		url: `/api/trailers/youtube/${encodeURIComponent(id)}?token=${encodeURIComponent(api.accessToken)}`
+	};
+}
+
+function remoteTrailer(api: Api, item: BaseItemDto): HeroTrailer | null {
+	const id = item.RemoteTrailers?.map((trailer) => youtubeVideoId(trailer.Url ?? undefined)).find(
+		Boolean
+	);
+	return id ? youtubeTrailer(api, id) : null;
+}
+
+async function localTrailer(
+	client: PluginHttpClient,
+	api: Api,
+	itemId: string,
+	userId: string
+): Promise<HeroTrailer | null> {
+	const result = await client.json(
+		`/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(itemId)}/LocalTrailers`,
+		{
+			decode: (value) => (Array.isArray(value) ? value : []) as BaseItemDto[]
+		}
+	);
+	const trailer = result.data?.[0];
+	if (!trailer?.Id) return null;
+	return {
+		kind: 'jellyfin',
+		url: videoStreamUrl(api, trailer.Id, {
+			mediaSourceId: trailer.MediaSources?.[0]?.Id ?? trailer.Id,
+			container: 'mp4'
+		})
+	};
+}
+
+export async function resolveHeroTrailer(
+	api: Api,
+	item: BaseItemDto,
+	userId: string,
+	options: { override?: string; preferLocal?: boolean; onlyLocal?: boolean } = {}
+): Promise<HeroTrailer | null> {
+	const overrideId = options.override?.match(/^[0-9a-f]{32}$/i)?.[0];
+	if (overrideId)
+		return { kind: 'jellyfin', url: videoStreamUrl(api, overrideId, { container: 'mp4' }) };
+	const overrideYoutubeId = youtubeVideoId(options.override);
+	if (overrideYoutubeId) return youtubeTrailer(api, overrideYoutubeId);
+
+	const client = new PluginHttpClient(api);
+	const detail = item.Id
+		? await client.json(
+				`/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(item.Id)}`,
+				{
+					query: { Fields: 'RemoteTrailers,LocalTrailerCount,MediaSources' },
+					decode: (value) => value as BaseItemDto
+				}
+			)
+		: undefined;
+	const enriched = detail?.data ?? item;
+	if (options.preferLocal || options.onlyLocal) {
+		const local = item.Id ? await localTrailer(client, api, item.Id, userId) : null;
+		if (local || options.onlyLocal) return local;
+	}
+	const remote = remoteTrailer(api, enriched);
+	if (remote) return remote;
+	return item.Id ? localTrailer(client, api, item.Id, userId) : null;
 }
