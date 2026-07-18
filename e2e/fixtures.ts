@@ -61,6 +61,16 @@ const featuredMovie = {
 	ProviderIds: { Tmdb: '1001' }
 };
 
+const featuredSeries = {
+	Id: 'series-featured',
+	Name: 'Signal House',
+	Type: 'Series',
+	ProductionYear: 2023,
+	OfficialRating: 'TV-14',
+	Overview: 'A remote listening station hears a transmission that should not exist.',
+	ProviderIds: { Tmdb: '4001' }
+};
+
 const resumeEpisode = {
 	Id: 'episode-resume',
 	Name: 'The Arrival',
@@ -403,7 +413,10 @@ export async function mockAuthenticatedApp(
 				return;
 			}
 
-			await json(route, { Items: [featuredMovie], TotalRecordCount: 1 });
+			const featured = query.get('parentid') === 'view-series'
+				? featuredSeries
+				: featuredMovie;
+			await json(route, { Items: [featured], TotalRecordCount: 1 });
 			return;
 		}
 

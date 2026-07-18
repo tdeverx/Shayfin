@@ -68,6 +68,36 @@ test.describe('authenticated media shell', () => {
 		await expect(page.getByRole('heading', { name: 'Favorites' })).toBeVisible();
 	});
 
+	test('browses and filters the shared movie library', async ({ page }) => {
+		await mockAuthenticatedApp(page);
+		await page.goto('/movies');
+
+		await expect(page.getByRole('heading', { name: 'Movies' })).toBeVisible();
+		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
+		await expect(page.getByText('1 titles')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Sort movies' })).toContainText('Title');
+
+		await page.getByRole('textbox', { name: 'Search movies' }).fill('missing');
+		await expect(page.getByText('No matching movies')).toBeVisible();
+		await page.getByRole('button', { name: 'Clear filters' }).click();
+		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
+	});
+
+	test('browses the shared series library with series-specific labels', async ({ page }) => {
+		await mockAuthenticatedApp(page);
+		await page.goto('/series');
+
+		await expect(page.getByRole('heading', { name: 'Series' })).toBeVisible();
+		await expect(page.getByText('Signal House', { exact: true })).toBeVisible();
+		await expect(page.getByText('1 series')).toBeVisible();
+		await expect(page.getByRole('textbox', { name: 'Search series' })).toHaveAttribute(
+			'placeholder',
+			'Search series or genres'
+		);
+		await page.getByRole('button', { name: 'Sort series' }).click();
+		await expect(page.getByRole('option', { name: 'First aired' })).toBeVisible();
+	});
+
 	test('preserves local Cmd/Ctrl+K search when Seerr is unavailable', async ({ page }) => {
 		await mockAuthenticatedApp(page, { seerrUnavailable: true });
 		await page.goto('/home');
@@ -107,6 +137,7 @@ test.describe('authenticated media shell', () => {
 			]
 		});
 		await page.goto('/home');
+		await expect(page.getByRole('heading', { name: 'Nebula Run' })).toBeVisible();
 
 		await page.keyboard.press('Control+K');
 		const search = page.getByRole('dialog', { name: 'Search Shayfin' });

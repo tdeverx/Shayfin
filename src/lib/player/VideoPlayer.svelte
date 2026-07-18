@@ -5,36 +5,22 @@
 </script>
 
 <script lang="ts">
-	import Hls from 'hls.js';
 	import type { DeviceProfile } from '@jellyfin/sdk/lib/generated-client/models/device-profile';
-	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
-	import GaugeIcon from '@lucide/svelte/icons/gauge';
-	import MaximizeIcon from '@lucide/svelte/icons/maximize';
-	import MinimizeIcon from '@lucide/svelte/icons/minimize';
-	import PauseIcon from '@lucide/svelte/icons/pause';
-	import PictureInPictureIcon from '@lucide/svelte/icons/picture-in-picture';
-	import PlayIcon from '@lucide/svelte/icons/play';
-	import Settings2Icon from '@lucide/svelte/icons/settings-2';
-	import SkipForwardIcon from '@lucide/svelte/icons/skip-forward';
-	import Volume2Icon from '@lucide/svelte/icons/volume-2';
-	import VolumeXIcon from '@lucide/svelte/icons/volume-x';
 	import { onMount, tick } from 'svelte';
-	import { Badge } from '$lib/components/ui/badge/index.js';
-	import { Button } from '$lib/components/ui/button/index.js';
-	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
-	import { Progress } from '$lib/components/ui/progress/index.js';
-	import { Slider } from '$lib/components/ui/slider/index.js';
-	import { Spinner } from '$lib/components/ui/spinner/index.js';
-	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import { cn } from '$lib/utils.js';
 	import { JellyfinPlaybackClient } from './client.js';
-	import ControlButton from './ControlButton.svelte';
+	import {
+		CONTROLS_HIDE_DELAY_MS,
+		PLAYBACK_SPEEDS,
+		PROGRESS_REPORT_INTERVAL_MS
+	} from './constants.js';
 	import { createBrowserDeviceProfile } from './device-profile.js';
+	import { MediaSourceController } from './media-source.js';
+	import PlayerChrome from './PlayerChrome.svelte';
 	import {
 		buildPlaybackProgressPayload,
 		buildPlaybackStopPayload,
 		clamp,
-		formatPlayerTime,
 		getExternalSubtitleTrack,
 		MEDIA_SEGMENT_LABELS,
 		PLAY_METHOD_LABELS,
@@ -42,7 +28,6 @@
 		selectActiveSegment,
 		selectMediaSource,
 		selectPlaybackRoute,
-		shouldUseNativeHls,
 		ticksToSeconds
 	} from './playback.js';
 	import type {
@@ -54,10 +39,6 @@
 		SupportedMediaSegmentType,
 		VideoPlayerProps
 	} from './types.js';
-
-	const PROGRESS_REPORT_INTERVAL_MS = 10_000;
-	const CONTROLS_HIDE_DELAY_MS = 2_500;
-	const PLAYBACK_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 
 	interface PlaybackSnapshot {
 		serverUrl: string;
@@ -85,7 +66,7 @@
 
 	let containerElement: HTMLDivElement;
 	let videoElement: HTMLVideoElement;
-	let hlsInstance: Hls | null = null;
+	let mediaController: MediaSourceController | null = null;
 	let playbackClient: JellyfinPlaybackClient | null = null;
 	let deviceProfile: DeviceProfile | null = null;
 	let activeRoute = $state<PlaybackRoute | null>(null);
@@ -138,6 +119,11 @@
 	);
 	let displayedSeekTime = $derived(sliderSeeking ? sliderSeekTime : currentTime);
 	let routeLabel = $derived(activeRoute ? PLAY_METHOD_LABELS[activeRoute.playMethod] : 'Preparing');
+	let segmentLabel = $derived(
+		activeSegment?.Type && activeSegment.EndTicks
+			? MEDIA_SEGMENT_LABELS[activeSegment.Type as SupportedMediaSegmentType]
+			: null
+	);
 
 	function safelyStopThemeAudio(callback = onThemeAudioStop): void {
 		try {
@@ -256,85 +242,12 @@
 	): Promise<void> {
 		suppressPlaybackEvents = true;
 		isLoading = true;
-		teardownMediaSource();
-
-		return new Promise((resolve, reject) => {
-			let settled = false;
-			let recoveryAttempts = 0;
-
-			const finish = (error?: Error) => {
-				if (settled) return;
-				settled = true;
-				videoElement.removeEventListener('loadedmetadata', handleMetadata);
-				videoElement.removeEventListener('error', handleVideoError);
-				signal.removeEventListener('abort', handleAbort);
-				if (error) reject(error);
-				else resolve();
-			};
-
-			const handleMetadata = () => {
-				duration = Number.isFinite(videoElement.duration) ? videoElement.duration : 0;
-				if (positionSeconds > 0 && videoElement.seekable.length > 0) {
-					const seekEnd = videoElement.seekable.end(videoElement.seekable.length - 1);
-					videoElement.currentTime = clamp(positionSeconds, 0, seekEnd);
-				}
-				videoElement.playbackRate = playbackRate;
-				finish();
-			};
-			const handleVideoError = () => {
-				finish(new Error('The browser could not load the negotiated media stream.'));
-			};
-			const handleAbort = () => finish(new DOMException('Playback was cancelled.', 'AbortError'));
-
-			videoElement.addEventListener('loadedmetadata', handleMetadata, { once: true });
-			videoElement.addEventListener('error', handleVideoError, { once: true });
-			signal.addEventListener('abort', handleAbort, { once: true });
-
-			const nativeHls = route.isHls && shouldUseNativeHls(videoElement);
-			if (route.isHls && !nativeHls) {
-				if (!Hls.isSupported()) {
-					finish(new Error('This browser cannot play Jellyfin HLS streams.'));
-					return;
-				}
-
-				const instance = new Hls({
-					enableWorker: true,
-					backBufferLength: 90,
-					maxBufferLength: 30
-				});
-				hlsInstance = instance;
-				instance.on(Hls.Events.MEDIA_ATTACHED, () => instance.loadSource(route.url));
-				instance.on(Hls.Events.ERROR, (_event, data) => {
-					if (!data.fatal) return;
-					recoveryAttempts += 1;
-					if (data.type === Hls.ErrorTypes.NETWORK_ERROR && recoveryAttempts <= 2) {
-						instance.startLoad();
-						return;
-					}
-					if (data.type === Hls.ErrorTypes.MEDIA_ERROR && recoveryAttempts <= 2) {
-						instance.recoverMediaError();
-						return;
-					}
-					const error = new Error('The HLS stream stopped after an unrecoverable playback error.');
-					if (settled) playbackError = error.message;
-					else finish(error);
-				});
-				instance.attachMedia(videoElement);
-				return;
-			}
-
-			videoElement.src = route.url;
-			videoElement.load();
-		});
+		if (!mediaController) throw new Error('The media controller is not ready.');
+		return mediaController.attach(route, positionSeconds, playbackRate, signal);
 	}
 
 	function teardownMediaSource(): void {
-		hlsInstance?.destroy();
-		hlsInstance = null;
-		if (!videoElement) return;
-		videoElement.pause();
-		videoElement.removeAttribute('src');
-		videoElement.load();
+		mediaController?.teardown();
 	}
 
 	function currentProgressPayload(): PlaybackProgressPayload | null {
@@ -643,6 +556,11 @@
 
 	onMount(() => {
 		mounted = true;
+		mediaController = new MediaSourceController(
+			videoElement,
+			(nextDuration) => (duration = nextDuration),
+			(message) => (playbackError = message)
+		);
 		volume = videoElement.volume;
 		muted = videoElement.muted;
 		pictureInPictureSupported =
@@ -667,6 +585,8 @@
 
 		return () => {
 			mounted = false;
+			mediaController?.teardown();
+			mediaController = null;
 			if (controlsTimer) clearTimeout(controlsTimer);
 			document.removeEventListener('fullscreenchange', handleFullscreenChange);
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -714,251 +634,85 @@
 	onpointerdown={showControls}
 />
 
-<Tooltip.Provider delayDuration={250}>
-	<div
-		bind:this={containerElement}
-		class={cn(
-			'relative isolate flex h-full min-h-64 w-full overflow-hidden rounded-xl bg-muted outline-none',
-			!controlsVisible && !paused && 'cursor-none',
-			className
-		)}
-		role="region"
-		aria-label="Video player"
+<div
+	bind:this={containerElement}
+	class={cn(
+		'relative isolate flex h-full min-h-64 w-full overflow-hidden rounded-xl bg-muted outline-none',
+		!controlsVisible && !paused && 'cursor-none',
+		className
+	)}
+	role="region"
+	aria-label="Video player"
+>
+	<!-- The video plane and controls intentionally own the only player-specific geometry. -->
+	<video
+		bind:this={videoElement}
+		class="size-full object-contain"
+		preload="auto"
+		playsinline
+		crossorigin="anonymous"
+		onclick={togglePlayback}
+		ontimeupdate={handleTimeUpdate}
+		onprogress={handleBufferProgress}
+		ondurationchange={handleTimeUpdate}
+		onplay={handlePlay}
+		onpause={handlePause}
+		onwaiting={() => (isBuffering = true)}
+		onplaying={() => (isBuffering = false)}
+		onended={handleEnded}
+		onerror={handleVideoError}
+		onseeked={() => reportPlaybackProgress(true)}
+		onvolumechange={() => {
+			volume = videoElement.volume;
+			muted = videoElement.muted;
+		}}
 	>
-		<!-- The video plane and controls intentionally own the only player-specific geometry. -->
-		<video
-			bind:this={videoElement}
-			class="size-full object-contain"
-			preload="auto"
-			playsinline
-			crossorigin="anonymous"
-			onclick={togglePlayback}
-			ontimeupdate={handleTimeUpdate}
-			onprogress={handleBufferProgress}
-			ondurationchange={handleTimeUpdate}
-			onplay={handlePlay}
-			onpause={handlePause}
-			onwaiting={() => (isBuffering = true)}
-			onplaying={() => (isBuffering = false)}
-			onended={handleEnded}
-			onerror={handleVideoError}
-			onseeked={() => reportPlaybackProgress(true)}
-			onvolumechange={() => {
-				volume = videoElement.volume;
-				muted = videoElement.muted;
-			}}
-		>
-			{#if subtitleTrack}
-				<track
-					kind="subtitles"
-					src={subtitleTrack.src}
-					srclang={subtitleTrack.language}
-					label={subtitleTrack.label}
-					default
-				/>
-			{/if}
-		</video>
-
-		<div class="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-3">
-			<ControlButton
-				label="Exit player"
-				icon={ArrowLeftIcon}
-				variant="secondary"
-				onclick={handleExit}
-				class="pointer-events-auto"
+		{#if subtitleTrack}
+			<track
+				kind="subtitles"
+				src={subtitleTrack.src}
+				srclang={subtitleTrack.language}
+				label={subtitleTrack.label}
+				default
 			/>
-			<Badge variant="secondary">{routeLabel}</Badge>
-		</div>
-
-		{#if isLoading || isBuffering}
-			<div
-				class="pointer-events-none absolute inset-0 flex items-center justify-center"
-				aria-live="polite"
-			>
-				<Badge variant="secondary">
-					<Spinner data-icon="inline-start" />
-					{isLoading ? 'Preparing playback' : 'Buffering'}
-				</Badge>
-			</div>
 		{/if}
+	</video>
 
-		{#if playbackError}
-			<div class="absolute inset-0 flex items-center justify-center p-6" aria-live="assertive">
-				<div
-					class="flex max-w-md flex-col items-center gap-3 rounded-xl border bg-background/90 p-5 text-center shadow-lg backdrop-blur"
-				>
-					<Badge variant="destructive">Playback error</Badge>
-					<p class="text-sm text-muted-foreground">{playbackError}</p>
-					<Button variant="secondary" onclick={() => (retryNonce += 1)}>Try again</Button>
-				</div>
-			</div>
-		{/if}
-
-		{#if activeSegment?.Type && activeSegment.EndTicks}
-			<Button
-				variant="secondary"
-				class="absolute right-4 bottom-28 shadow-lg"
-				onclick={skipActiveSegment}
-			>
-				<SkipForwardIcon data-icon="inline-start" />
-				{MEDIA_SEGMENT_LABELS[activeSegment.Type as SupportedMediaSegmentType]}
-			</Button>
-		{/if}
-
-		<div
-			class={cn(
-				'absolute inset-x-0 bottom-0 flex flex-col gap-2 border-t bg-background/90 p-3 backdrop-blur transition-opacity',
-				!controlsVisible && !paused && 'pointer-events-none opacity-0'
-			)}
-		>
-			<Progress
-				value={bufferedTime}
-				max={duration || 1}
-				class="h-1"
-				aria-label="Buffered playback progress"
-			/>
-			<div class="flex items-center gap-3">
-				<span class="min-w-11 text-right text-xs text-muted-foreground tabular-nums">
-					{formatPlayerTime(displayedSeekTime)}
-				</span>
-				<Slider
-					type="single"
-					value={displayedSeekTime}
-					min={0}
-					max={duration || 1}
-					step={0.1}
-					disabled={!duration || isLoading}
-					onValueChange={handleSeekInput}
-					onValueCommit={handleSeekCommit}
-					aria-label="Seek"
-				/>
-				<span class="min-w-11 text-xs text-muted-foreground tabular-nums">
-					{formatPlayerTime(duration)}
-				</span>
-			</div>
-
-			<div class="flex items-center justify-between gap-3">
-				<div class="flex min-w-0 items-center gap-2">
-					<ControlButton
-						label={paused ? 'Play' : 'Pause'}
-						icon={paused ? PlayIcon : PauseIcon}
-						onclick={togglePlayback}
-						disabled={isLoading}
-					/>
-					<ControlButton
-						label={muted ? 'Unmute' : 'Mute'}
-						icon={muted || volume === 0 ? VolumeXIcon : Volume2Icon}
-						onclick={toggleMute}
-						pressed={muted}
-					/>
-					<Slider
-						type="single"
-						value={muted ? 0 : volume * 100}
-						min={0}
-						max={100}
-						step={1}
-						onValueChange={handleVolume}
-						aria-label="Volume"
-						class="hidden w-24 sm:flex"
-					/>
-				</div>
-
-				<div class="flex items-center gap-2">
-					{#if nextItemId && onNext}
-						<ControlButton
-							label="Play next"
-							icon={SkipForwardIcon}
-							onclick={() => onNext?.(nextItemId as string)}
-						/>
-					{/if}
-
-					<DropdownMenu.Root>
-						<DropdownMenu.Trigger>
-							{#snippet child({ props })}
-								<Button {...props} variant="secondary" size="icon" aria-label="Playback settings">
-									<Settings2Icon />
-								</Button>
-							{/snippet}
-						</DropdownMenu.Trigger>
-						<DropdownMenu.Content align="end" class="max-h-80 overflow-y-auto">
-							{#if audioStreams.length}
-								<DropdownMenu.Group>
-									<DropdownMenu.Label>Audio</DropdownMenu.Label>
-									<DropdownMenu.RadioGroup
-										value={selectedAudioIndex?.toString() ?? ''}
-										onValueChange={(value) =>
-											void renegotiateStreams(Number(value), selectedSubtitleIndex)}
-									>
-										{#each audioStreams as stream (stream.Index)}
-											<DropdownMenu.RadioItem value={String(stream.Index)}>
-												{stream.DisplayTitle ||
-													stream.Title ||
-													stream.Language ||
-													`Track ${stream.Index}`}
-											</DropdownMenu.RadioItem>
-										{/each}
-									</DropdownMenu.RadioGroup>
-								</DropdownMenu.Group>
-								<DropdownMenu.Separator />
-							{/if}
-
-							<DropdownMenu.Group>
-								<DropdownMenu.Label>Subtitles</DropdownMenu.Label>
-								<DropdownMenu.RadioGroup
-									value={selectedSubtitleIndex?.toString() ?? 'off'}
-									onValueChange={(value) =>
-										void renegotiateStreams(
-											selectedAudioIndex,
-											value === 'off' ? null : Number(value)
-										)}
-								>
-									<DropdownMenu.RadioItem value="off">Off</DropdownMenu.RadioItem>
-									{#each subtitleStreams as stream (stream.Index)}
-										<DropdownMenu.RadioItem value={String(stream.Index)}>
-											{stream.DisplayTitle ||
-												stream.Title ||
-												stream.Language ||
-												`Track ${stream.Index}`}
-										</DropdownMenu.RadioItem>
-									{/each}
-								</DropdownMenu.RadioGroup>
-							</DropdownMenu.Group>
-							<DropdownMenu.Separator />
-
-							<DropdownMenu.Group>
-								<DropdownMenu.Label>
-									<span class="flex items-center gap-2"><GaugeIcon /> Playback speed</span>
-								</DropdownMenu.Label>
-								<DropdownMenu.RadioGroup
-									value={String(playbackRate)}
-									onValueChange={setPlaybackSpeed}
-								>
-									{#each PLAYBACK_SPEEDS as speed (speed)}
-										<DropdownMenu.RadioItem value={String(speed)}>
-											{speed === 1 ? 'Normal' : `${speed}×`}
-										</DropdownMenu.RadioItem>
-									{/each}
-								</DropdownMenu.RadioGroup>
-							</DropdownMenu.Group>
-						</DropdownMenu.Content>
-					</DropdownMenu.Root>
-
-					{#if pictureInPictureSupported}
-						<ControlButton
-							label={isPictureInPicture ? 'Exit picture-in-picture' : 'Picture-in-picture'}
-							icon={PictureInPictureIcon}
-							onclick={() => void togglePictureInPicture()}
-							pressed={isPictureInPicture}
-						/>
-					{/if}
-					<ControlButton
-						label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-						icon={isFullscreen ? MinimizeIcon : MaximizeIcon}
-						onclick={() => void toggleFullscreen()}
-						pressed={isFullscreen}
-					/>
-				</div>
-			</div>
-		</div>
-	</div>
-</Tooltip.Provider>
+	<PlayerChrome
+		{routeLabel}
+		{isLoading}
+		{isBuffering}
+		{playbackError}
+		{segmentLabel}
+		{controlsVisible}
+		{paused}
+		{muted}
+		{volume}
+		{bufferedTime}
+		{duration}
+		{displayedSeekTime}
+		{nextItemId}
+		{audioStreams}
+		{subtitleStreams}
+		{selectedAudioIndex}
+		{selectedSubtitleIndex}
+		{playbackRate}
+		{pictureInPictureSupported}
+		{isPictureInPicture}
+		{isFullscreen}
+		onExit={handleExit}
+		onRetry={() => (retryNonce += 1)}
+		onSkipSegment={skipActiveSegment}
+		onSeekInput={handleSeekInput}
+		onSeekCommit={handleSeekCommit}
+		onTogglePlayback={togglePlayback}
+		onToggleMute={toggleMute}
+		onVolume={handleVolume}
+		{onNext}
+		onSelectAudio={(index) => void renegotiateStreams(index, selectedSubtitleIndex)}
+		onSelectSubtitle={(index) => void renegotiateStreams(selectedAudioIndex, index)}
+		onPlaybackSpeed={setPlaybackSpeed}
+		onTogglePictureInPicture={() => void togglePictureInPicture()}
+		onToggleFullscreen={() => void toggleFullscreen()}
+	/>
+</div>
