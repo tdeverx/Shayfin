@@ -23,6 +23,7 @@
 		posterForItem
 	} from '$lib/app/media';
 	import { session } from '$lib/app/session.svelte';
+	import { readCache, userCacheKey, writeCache } from '$lib/app/data-cache';
 	import { themeAudio } from '$lib/app/theme-audio';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -43,6 +44,14 @@
 	let themeUrl = $state<string | null>(null);
 	let loadGeneration = 0;
 	let retryThemeOnInteraction: (() => void) | null = null;
+	let detailCacheKey = '';
+	const DETAIL_CACHE_MS = 2 * 60_000;
+
+	interface DetailCacheData {
+		item: BaseItemDto;
+		series: SeriesDetail | null;
+		themeUrl: string | null;
+	}
 
 	let backdropUrl = $derived.by(() => {
 		const api = session.api;
@@ -66,17 +75,38 @@
 		);
 	});
 
+	function applyDetail(snapshot: DetailCacheData) {
+		item = snapshot.item;
+		favorite = snapshot.item.UserData?.IsFavorite === true;
+		series = snapshot.series;
+		selectedSeason = snapshot.series?.seasons.find((season) => season.Id)?.Id ?? '';
+		themeUrl = snapshot.themeUrl;
+	}
+
 	async function load(itemId: string) {
 		const api = session.api;
 		const userId = session.user?.id;
 		if (!api || !userId || !itemId) return;
 		const generation = ++loadGeneration;
-		loading = true;
-		error = null;
-		item = null;
-		series = null;
-		selectedSeason = '';
-		themeUrl = null;
+		detailCacheKey = userCacheKey(
+			session.bootstrap?.jellyfin?.server.id,
+			userId,
+			`detail:${itemId}`
+		);
+		const cached = readCache<DetailCacheData>(detailCacheKey, DETAIL_CACHE_MS);
+		if (cached) {
+			applyDetail(cached.value);
+			loading = false;
+			if (!cached.stale) return;
+		}
+		if (!cached) {
+			loading = true;
+			error = null;
+			item = null;
+			series = null;
+			selectedSeason = '';
+			themeUrl = null;
+		}
 		try {
 			const detail = await loadItemDetail(api, userId, itemId);
 			let seriesDetail: SeriesDetail | null = null;
@@ -89,17 +119,15 @@
 				nextThemeUrl = songs[0]?.streamUrl ?? null;
 			}
 			if (generation !== loadGeneration) return;
-			item = detail;
-			favorite = detail.UserData?.IsFavorite === true;
-			series = seriesDetail;
-			selectedSeason = seriesDetail?.seasons.find((season) => season.Id)?.Id ?? '';
-			themeUrl = nextThemeUrl;
+			const snapshot = { item: detail, series: seriesDetail, themeUrl: nextThemeUrl };
+			applyDetail(snapshot);
+			writeCache(detailCacheKey, snapshot);
 		} catch (reason) {
-			if (generation === loadGeneration) {
+			if (!cached && generation === loadGeneration) {
 				error = reason instanceof Error ? reason.message : 'This item could not be loaded.';
 			}
 		} finally {
-			if (generation === loadGeneration) loading = false;
+			if (!cached && generation === loadGeneration) loading = false;
 		}
 	}
 
@@ -113,6 +141,9 @@
 				await library.markFavoriteItem({ itemId: item.Id, userId: session.user.id });
 			}
 			favorite = !favorite;
+			if (item?.UserData) item = { ...item, UserData: { ...item.UserData, IsFavorite: favorite } };
+			if (detailCacheKey && item)
+				writeCache(detailCacheKey, { item, series, themeUrl } satisfies DetailCacheData);
 			toast.success(favorite ? 'Added to favorites.' : 'Removed from favorites.');
 		} catch {
 			toast.error('Your favorite could not be updated.');

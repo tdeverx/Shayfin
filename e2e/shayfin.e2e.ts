@@ -189,6 +189,32 @@ test.describe('authenticated media shell', () => {
 		await expect(page.locator('[data-slot="sidebar-wrapper"]')).toHaveCount(0);
 		await expect(page.getByRole('navigation', { name: 'Media' })).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Toggle settings sidebar' })).toHaveCount(0);
+		await page.getByRole('button', { name: /Open .* profile menu/ }).click();
+		const profileMenu = page.getByRole('menu');
+		await expect(profileMenu.getByRole('menuitem')).toHaveText(['Profile', 'Settings', 'Sign out']);
+	});
+
+	test('reuses a loaded media library when navigating away and back', async ({ page }) => {
+		let movieLibraryLoads = 0;
+		page.on('request', (request) => {
+			const url = new URL(request.url());
+			if (
+				url.pathname.endsWith('/Items') &&
+				url.searchParams.get('parentId') === 'view-movies' &&
+				url.searchParams.get('sortBy')?.toLowerCase().includes('sortname')
+			)
+				movieLibraryLoads += 1;
+		});
+		await mockAuthenticatedApp(page);
+		await page.goto('/movies');
+		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
+		expect(movieLibraryLoads).toBe(1);
+
+		await page.getByRole('radio', { name: 'Home' }).click();
+		await expect(page.getByRole('heading', { name: 'Nebula Run' })).toBeVisible();
+		await page.getByRole('radio', { name: 'Movies' }).click();
+		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
+		expect(movieLibraryLoads).toBe(1);
 	});
 
 	test('moves detail back navigation into the context-aware header', async ({ page }) => {
@@ -338,9 +364,13 @@ test.describe('profile capabilities', () => {
 		await page.goto('/profile');
 
 		await expect(page.getByRole('heading', { name: 'Nora Viewer' })).toBeVisible();
+		await expect(page.getByText('Last watched · Nebula Run')).toBeVisible();
+		await expect(
+			page.getByRole('region', { name: 'Nora Viewer' }).locator('img[src*="movie-featured"]')
+		).toBeVisible();
 		await expect(page.locator(`img[src*="/Users/user-1/Images/Primary"]`).last()).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Recently played' })).toBeVisible();
-		await expect(page.getByText('Nebula Run')).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Nebula Run' })).toBeVisible();
 		await expect(page.getByRole('tab', { name: 'Requests' })).toHaveCount(0);
 		await expect(page.getByRole('tab', { name: 'Achievements' })).toHaveCount(0);
 		await expect(page.getByRole('button', { name: 'Choose avatar' })).toHaveCount(0);
@@ -390,7 +420,12 @@ test.describe('profile capabilities', () => {
 
 		await page.getByRole('button', { name: 'Choose avatar' }).click();
 		const avatarDialog = page.getByRole('dialog', { name: 'Choose an avatar' });
-		await avatarDialog.getByRole('button', { name: 'Orbit' }).click();
+		await expect(avatarDialog.getByRole('heading', { name: 'Space' })).toBeVisible();
+		const orbitAvatar = avatarDialog.getByRole('button', { name: 'Orbit' });
+		expect(
+			await orbitAvatar.locator('[data-slot="avatar"]').evaluate((element) => element.clientWidth)
+		).toBeGreaterThanOrEqual(96);
+		await orbitAvatar.click();
 		await expect(page.getByText('Avatar updated.')).toBeVisible();
 		expect(avatarSetBodies).toEqual([{ AvatarId: 'avatar-1', UserId: 'user-1' }]);
 	});

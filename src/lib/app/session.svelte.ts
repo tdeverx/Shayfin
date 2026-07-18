@@ -5,6 +5,7 @@ import { getSessionApi } from '@jellyfin/sdk/lib/utils/api/session-api';
 import { getUserApi } from '@jellyfin/sdk/lib/utils/api/user-api';
 import { getUserViewsApi } from '@jellyfin/sdk/lib/utils/api/user-views-api';
 import type { AppUser, MediaNavigationItem } from './models';
+import { clearDataCache } from './data-cache';
 
 export interface BootstrapState {
 	configured: boolean;
@@ -169,6 +170,7 @@ class SessionState {
 		try {
 			if (this.api) await getSessionApi(this.api).reportSessionEnded();
 		} finally {
+			clearDataCache();
 			if (browser && this.bootstrap?.jellyfin)
 				localStorage.removeItem(tokenKey(this.bootstrap.jellyfin.server.id));
 			this.api = null;

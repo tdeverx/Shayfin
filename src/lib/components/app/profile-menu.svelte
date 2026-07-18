@@ -40,14 +40,7 @@
 			</button>
 		{/snippet}
 	</DropdownMenu.Trigger>
-	<DropdownMenu.Content align="start" class="w-52">
-		<DropdownMenu.Label>
-			<span class="block truncate">{user.name}</span>
-			<small class="text-muted-foreground"
-				>{user.isAdministrator ? 'Administrator' : 'Jellyfin user'}</small
-			>
-		</DropdownMenu.Label>
-		<DropdownMenu.Separator />
+	<DropdownMenu.Content align="start" class="w-44">
 		<DropdownMenu.Group>
 			<DropdownMenu.Item>
 				{#snippet child({ props })}
@@ -65,9 +58,6 @@
 					</a>
 				{/snippet}
 			</DropdownMenu.Item>
-		</DropdownMenu.Group>
-		<DropdownMenu.Separator />
-		<DropdownMenu.Group>
 			<DropdownMenu.Item onclick={() => void onLogout()}>
 				<LogOutIcon />
 				Sign out

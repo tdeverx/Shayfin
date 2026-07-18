@@ -13,6 +13,7 @@
 		trailer = null,
 		showTrailer = false,
 		paused = false,
+		beforeTitle,
 		metadata,
 		actions,
 		actionsOnHover = false,
@@ -29,6 +30,7 @@
 		trailer?: HeroTrailer | null;
 		showTrailer?: boolean;
 		paused?: boolean;
+		beforeTitle?: Snippet;
 		metadata?: Snippet;
 		actions?: Snippet;
 		actionsOnHover?: boolean;
@@ -96,6 +98,9 @@
 			)}
 		>
 			<div class="flex flex-col gap-4">
+				{#if beforeTitle}
+					<div class="pointer-events-auto">{@render beforeTitle()}</div>
+				{/if}
 				{#if logoUrl}
 					<img
 						src={logoUrl}

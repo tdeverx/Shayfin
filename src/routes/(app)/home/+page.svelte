@@ -19,6 +19,7 @@
 	import * as Empty from '$lib/components/ui/empty';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { session } from '$lib/app/session.svelte';
+	import { deleteCache, readCache, userCacheKey, writeCache } from '$lib/app/data-cache';
 	import { toMediaCard, toSpotlight } from '$lib/app/media';
 	import type { DownloadModel, MediaSectionModel } from '$lib/app/models';
 	import type { DownloadProgress } from '$lib/server/contracts';
@@ -36,6 +37,17 @@
 	let onlyLocalTrailers = $state(false);
 	let heroLoadToken = 0;
 	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+	let homeCacheKey = '';
+	const HOME_CACHE_MS = 2 * 60_000;
+
+	interface HomeCacheData {
+		sections: HomeSectionModel[];
+		heroItems: BaseItemDto[];
+		heroSourceSectionId: string | null;
+		trailerOverrides: Record<string, string>;
+		preferLocalTrailers: boolean;
+		onlyLocalTrailers: boolean;
+	}
 
 	let heroModels = $derived.by(() => {
 		const api = session.api;
@@ -80,11 +92,21 @@
 			.filter((section) => section.items.length > 0);
 	});
 
-	async function loadHome() {
+	function applyHome(snapshot: HomeCacheData) {
+		sections = snapshot.sections;
+		heroItems = snapshot.heroItems;
+		heroSourceSectionId = snapshot.heroSourceSectionId;
+		trailerOverrides = snapshot.trailerOverrides;
+		preferLocalTrailers = snapshot.preferLocalTrailers;
+		onlyLocalTrailers = snapshot.onlyLocalTrailers;
+	}
+
+	async function loadHome(background = false) {
 		const api = session.api;
 		const userId = session.user?.id;
 		if (!api || !userId) return;
-		error = null;
+		if (!background) error = null;
+		homeCacheKey ||= userCacheKey(session.bootstrap?.jellyfin?.server.id, userId, 'home');
 		try {
 			const [plugin, mediaBar] = await Promise.all([
 				new HomeScreenSectionsAdapter(api).loadHome(userId, navigator.language),
@@ -106,10 +128,19 @@
 				onlyLocalTrailers = false;
 			}
 			if (heroItems[0]?.Id) await selectHeroItem(heroItems[0].Id);
+			writeCache<HomeCacheData>(homeCacheKey, {
+				sections,
+				heroItems,
+				heroSourceSectionId,
+				trailerOverrides,
+				preferLocalTrailers,
+				onlyLocalTrailers
+			});
 		} catch (reason) {
-			error = reason instanceof Error ? reason.message : 'Your home screen could not be loaded.';
+			if (!background)
+				error = reason instanceof Error ? reason.message : 'Your home screen could not be loaded.';
 		} finally {
-			loading = false;
+			if (!background) loading = false;
 		}
 	}
 
@@ -154,12 +185,25 @@
 	}
 
 	onMount(() => {
-		void loadHome();
+		const userId = session.user?.id;
+		if (userId) {
+			homeCacheKey = userCacheKey(session.bootstrap?.jellyfin?.server.id, userId, 'home');
+			const cached = readCache<HomeCacheData>(homeCacheKey, HOME_CACHE_MS);
+			if (cached) {
+				applyHome(cached.value);
+				loading = false;
+				if (heroItems[0]?.Id) void selectHeroItem(heroItems[0].Id);
+			}
+			if (!cached || cached.stale) void loadHome(Boolean(cached));
+		} else {
+			void loadHome();
+		}
 		void loadDownloads();
 		const subscription = session.api
 			? subscribeToInvalidations(session.api, () => {
 					clearTimeout(refreshTimer);
-					refreshTimer = setTimeout(() => void loadHome(), 500);
+					if (homeCacheKey) deleteCache(homeCacheKey);
+					refreshTimer = setTimeout(() => void loadHome(true), 500);
 				})
 			: undefined;
 		let poll = setInterval(() => void loadDownloads(), document.hidden ? 60_000 : 15_000);

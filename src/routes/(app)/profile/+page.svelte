@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import BadgeCheckIcon from '@lucide/svelte/icons/badge-check';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import HeartIcon from '@lucide/svelte/icons/heart';
@@ -10,8 +11,10 @@
 	import TrophyIcon from '@lucide/svelte/icons/trophy';
 	import { toast } from 'svelte-sonner';
 	import { session } from '$lib/app/session.svelte';
+	import { readCache, userCacheKey, writeCache } from '$lib/app/data-cache';
 	import { toMediaCard } from '$lib/app/media';
 	import type { MediaCardModel } from '$lib/app/models';
+	import MediaHero from '$lib/components/app/media-hero.svelte';
 	import MediaRail from '$lib/components/app/media-rail.svelte';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import * as Avatar from '$lib/components/ui/avatar';
@@ -47,6 +50,21 @@
 	let currentAvatarUrl = $state<string | undefined>(undefined);
 	let changingAvatar = $state<string | null>(null);
 	let avatarAdapter: GetAvatarAdapter | null = null;
+	let profileCacheKey = '';
+
+	interface ProfileCacheData {
+		recentlyPlayed: MediaCardModel[];
+		favorites: MediaCardModel[];
+		requests: NormalizedMediaRequest[];
+		requestsAvailable: boolean;
+		achievements: AchievementProfile | null;
+		achievementDegraded: boolean;
+		avatars: AvatarOption[];
+		avatarAvailable: boolean;
+		currentAvatarUrl?: string;
+	}
+
+	const PROFILE_CACHE_MS = 2 * 60_000;
 
 	let recordStats = $derived.by(() => {
 		if (!achievements) return [];
@@ -72,13 +90,60 @@
 			achievements.badges.every((badge) => badge.currentValue === 0)
 		)
 	);
+	let lastWatched = $derived(recentlyPlayed[0]);
+	let avatarCategories = $derived.by(() => {
+		const groups = new SvelteMap<string, AvatarOption[]>();
+		for (const avatar of avatars) {
+			const category = avatar.category.trim() || 'Other';
+			groups.set(category, [...(groups.get(category) ?? []), avatar]);
+		}
+		return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right));
+	});
 
 	function badgeProgress(badge: AchievementBadge): number {
 		if (badge.targetValue <= 0) return badge.unlocked ? 100 : 0;
 		return Math.min(100, Math.max(0, (badge.currentValue / badge.targetValue) * 100));
 	}
 
-	onMount(loadProfile);
+	onMount(async () => {
+		if (!session.user) await session.initialize();
+		const user = session.user;
+		if (!user) return void loadProfile();
+		profileCacheKey = userCacheKey(session.bootstrap?.jellyfin?.server.id, user.id, 'profile');
+		avatarAdapter = session.api ? new GetAvatarAdapter(session.api) : null;
+		const cached = readCache<ProfileCacheData>(profileCacheKey, PROFILE_CACHE_MS);
+		if (cached) {
+			applyProfile(cached.value);
+			loading = false;
+		}
+		if (!cached || cached.stale) await loadProfile(Boolean(cached));
+	});
+
+	function profileSnapshot(): ProfileCacheData {
+		return {
+			recentlyPlayed,
+			favorites,
+			requests,
+			requestsAvailable,
+			achievements,
+			achievementDegraded,
+			avatars,
+			avatarAvailable,
+			currentAvatarUrl
+		};
+	}
+
+	function applyProfile(snapshot: ProfileCacheData) {
+		recentlyPlayed = snapshot.recentlyPlayed;
+		favorites = snapshot.favorites;
+		requests = snapshot.requests;
+		requestsAvailable = snapshot.requestsAvailable;
+		achievements = snapshot.achievements;
+		achievementDegraded = snapshot.achievementDegraded;
+		avatars = snapshot.avatars;
+		avatarAvailable = snapshot.avatarAvailable;
+		currentAvatarUrl = snapshot.currentAvatarUrl;
+	}
 
 	function authenticatedImage(url: string | undefined): string | undefined {
 		if (!url) return undefined;
@@ -100,8 +165,8 @@
 		return body.results ?? [];
 	}
 
-	async function loadProfile() {
-		loading = true;
+	async function loadProfile(background = false) {
+		if (!background) loading = true;
 		error = null;
 		try {
 			await session.initialize();
@@ -112,6 +177,7 @@
 			currentAvatarUrl = authenticatedImage(user.imageUrl);
 			const achievementsAdapter = new AchievementBadgesAdapter(api);
 			avatarAdapter = new GetAvatarAdapter(api);
+			profileCacheKey ||= userCacheKey(session.bootstrap?.jellyfin?.server.id, user.id, 'profile');
 			const [mediaResult, requestResult, achievementResult, avatarResult, currentAvatarResult] =
 				await Promise.allSettled([
 					loadProfileMedia(api, user.id),
@@ -172,10 +238,12 @@
 				currentAvatarUrl =
 					authenticatedImage(currentAvatarResult.value.data?.url) ?? currentAvatarUrl;
 			}
+			writeCache(profileCacheKey, profileSnapshot());
 		} catch (reason) {
-			error = reason instanceof Error ? reason.message : 'Your profile could not be loaded.';
+			if (!background)
+				error = reason instanceof Error ? reason.message : 'Your profile could not be loaded.';
 		} finally {
-			loading = false;
+			if (!background) loading = false;
 		}
 	}
 
@@ -191,6 +259,7 @@
 			}
 			currentAvatarUrl = avatar.imageUrl;
 			session.user = { ...user, imageUrl: avatar.imageUrl };
+			if (profileCacheKey) writeCache(profileCacheKey, profileSnapshot());
 			avatarDialogOpen = false;
 			toast.success('Avatar updated.');
 		} catch (reason) {
@@ -220,17 +289,25 @@
 
 <svelte:head><title>Profile · Shayfin</title></svelte:head>
 
-<div class="mx-auto w-full max-w-7xl space-y-6">
+<div class="mx-auto flex w-full max-w-7xl flex-col gap-6">
 	{#if loading}
-		<Card.Root>
-			<Card.Content class="flex items-center gap-5">
-				<Skeleton class="size-20 rounded-full" />
-				<div class="flex-1 space-y-2">
-					<Skeleton class="h-7 w-40" />
-					<Skeleton class="h-4 w-60 max-w-full" />
+		<div
+			class="relative left-1/2 -mt-20 h-[clamp(28rem,62svh,40rem)] w-[100dvw] -translate-x-1/2 overflow-hidden bg-background"
+		>
+			<Skeleton class="absolute inset-0 size-full rounded-none" />
+			<div
+				class="absolute inset-x-0 bottom-0 h-4/5 bg-gradient-to-t from-background via-background/60 to-transparent"
+			></div>
+			<div
+				class="relative mx-auto flex size-full max-w-[110rem] items-end px-4 pt-28 pb-8 sm:px-6 sm:pb-10 lg:px-8"
+			>
+				<div class="flex flex-col gap-4">
+					<Skeleton class="size-24 rounded-full" />
+					<Skeleton class="h-10 w-56" />
+					<Skeleton class="h-5 w-72 max-w-[75vw]" />
 				</div>
-			</Card.Content>
-		</Card.Root>
+			</div>
+		</div>
 		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 			{#each [0, 1, 2, 3] as card (card)}<Skeleton class="h-28 w-full" />{/each}
 		</div>
@@ -239,38 +316,56 @@
 			<AlertTitle>Profile unavailable</AlertTitle>
 			<AlertDescription class="flex flex-wrap items-center justify-between gap-3">
 				<span>{error}</span>
-				<Button variant="outline" size="sm" onclick={loadProfile}>
+				<Button variant="outline" size="sm" onclick={() => loadProfile()}>
 					<RotateCcwIcon data-icon="inline-start" />
 					Try again
 				</Button>
 			</AlertDescription>
 		</Alert>
 	{:else if session.user}
-		<Card.Root>
-			<Card.Content class="flex flex-col gap-5 sm:flex-row sm:items-center">
-				<Avatar.Root class="size-20">
+		{#snippet profileAvatar()}
+			{#if avatarAvailable}
+				<button
+					class="group/avatar-picker relative rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+					aria-label="Choose avatar"
+					onclick={() => (avatarDialogOpen = true)}
+				>
+					<Avatar.Root class="size-24 sm:size-28">
+						{#if currentAvatarUrl}<Avatar.Image src={currentAvatarUrl} alt="" />{/if}
+						<Avatar.Fallback class="text-2xl"
+							>{(session.user?.name ?? 'J').slice(0, 1).toUpperCase()}</Avatar.Fallback
+						>
+					</Avatar.Root>
+					<span
+						class="absolute inset-0 flex items-center justify-center rounded-full bg-background/70 opacity-0 backdrop-blur-sm transition-opacity group-hover/avatar-picker:opacity-100 group-focus-visible/avatar-picker:opacity-100"
+					>
+						<ImageIcon />
+						<span class="sr-only">Choose avatar</span>
+					</span>
+				</button>
+			{:else}
+				<Avatar.Root class="size-24 sm:size-28">
 					{#if currentAvatarUrl}<Avatar.Image src={currentAvatarUrl} alt="" />{/if}
-					<Avatar.Fallback class="text-xl"
-						>{session.user.name.slice(0, 1).toUpperCase()}</Avatar.Fallback
+					<Avatar.Fallback class="text-2xl"
+						>{(session.user?.name ?? 'J').slice(0, 1).toUpperCase()}</Avatar.Fallback
 					>
 				</Avatar.Root>
-				<div class="min-w-0 flex-1 space-y-1">
-					<div class="flex flex-wrap items-center gap-2">
-						<h1 class="truncate text-3xl font-semibold tracking-tight">{session.user.name}</h1>
-						{#if session.user.isAdministrator}<Badge variant="secondary">Administrator</Badge>{/if}
-					</div>
-					<p class="text-sm text-muted-foreground">
-						{session.bootstrap?.jellyfin?.server.name ?? 'Jellyfin'} account
-					</p>
-				</div>
-				{#if avatarAvailable}
-					<Button variant="outline" onclick={() => (avatarDialogOpen = true)}>
-						<ImageIcon data-icon="inline-start" />
-						Choose avatar
-					</Button>
-				{/if}
-			</Card.Content>
-		</Card.Root>
+			{/if}
+		{/snippet}
+
+		{#snippet profileMetadata()}
+			<Badge variant="secondary">{session.bootstrap?.jellyfin?.server.name ?? 'Jellyfin'}</Badge>
+			{#if session.user?.isAdministrator}<Badge variant="outline">Administrator</Badge>{/if}
+		{/snippet}
+
+		<MediaHero
+			title={session.user.name}
+			backdropUrl={lastWatched?.backdropUrl ?? lastWatched?.imageUrl}
+			tagline={lastWatched ? `Last watched · ${lastWatched.title}` : 'Your Jellyfin profile'}
+			headingId="profile-title"
+			beforeTitle={profileAvatar}
+			metadata={profileMetadata}
+		/>
 
 		{#if achievements}
 			<section aria-labelledby="achievement-summary" class="space-y-3">
@@ -531,30 +626,36 @@
 </div>
 
 <Dialog.Root bind:open={avatarDialogOpen}>
-	<Dialog.Content class="sm:max-w-2xl">
+	<Dialog.Content class="sm:max-w-3xl">
 		<Dialog.Header>
 			<Dialog.Title>Choose an avatar</Dialog.Title>
 			<Dialog.Description
 				>Available avatars are supplied by GetAvatar for this Jellyfin server.</Dialog.Description
 			>
 		</Dialog.Header>
-		<div
-			class="grid max-h-[60vh] grid-cols-2 gap-3 overflow-y-auto pr-1 sm:grid-cols-3 md:grid-cols-4"
-		>
-			{#each avatars as avatar (avatar.id)}
-				<Button
-					variant="outline"
-					class="h-auto min-w-0 flex-col gap-2 p-2"
-					disabled={changingAvatar !== null}
-					onclick={() => setAvatar(avatar)}
-				>
-					<Avatar.Root size="lg"
-						><Avatar.Image src={avatar.imageUrl} alt="" /><Avatar.Fallback
-							>{avatar.name.slice(0, 1)}</Avatar.Fallback
-						></Avatar.Root
-					>
-					<span class="w-full truncate text-xs">{avatar.name}</span>
-				</Button>
+		<div class="flex max-h-[65vh] flex-col gap-7 overflow-y-auto pr-1">
+			{#each avatarCategories as [category, categoryAvatars] (category)}
+				<section class="flex flex-col gap-3" aria-labelledby={`avatar-category-${category}`}>
+					<h2 id={`avatar-category-${category}`} class="text-sm font-medium text-muted-foreground">
+						{category}
+					</h2>
+					<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+						{#each categoryAvatars as avatar (avatar.id)}
+							<Button
+								variant="ghost"
+								class="h-auto min-w-0 flex-col gap-3 p-3"
+								disabled={changingAvatar !== null}
+								onclick={() => setAvatar(avatar)}
+							>
+								<Avatar.Root class="size-24 sm:size-28">
+									<Avatar.Image src={avatar.imageUrl} alt="" />
+									<Avatar.Fallback class="text-xl">{avatar.name.slice(0, 1)}</Avatar.Fallback>
+								</Avatar.Root>
+								<span class="w-full truncate text-sm">{avatar.name}</span>
+							</Button>
+						{/each}
+					</div>
+				</section>
 			{/each}
 		</div>
 		<Dialog.Footer

@@ -12,6 +12,7 @@
 	import { SortOrder } from '@jellyfin/sdk/lib/generated-client/models/sort-order.js';
 	import { getItemsApi } from '@jellyfin/sdk/lib/utils/api/items-api.js';
 	import { toMediaCard } from '$lib/app/media';
+	import { readCache, userCacheKey, writeCache } from '$lib/app/data-cache';
 	import { session } from '$lib/app/session.svelte';
 	import { headerContext } from '$lib/app/header-context.svelte';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
@@ -70,6 +71,8 @@
 	let query = $state('');
 	let filter = $state<LibraryFilter>('all');
 	let sort = $state<LibrarySort>('title');
+	const LIBRARY_CACHE_MS = 5 * 60_000;
+	let libraryCacheKey = '';
 
 	let filteredItems = $derived.by(() => {
 		const needle = query.trim().toLocaleLowerCase();
@@ -118,22 +121,43 @@
 		};
 	});
 
-	onMount(loadItems);
+	onMount(async () => {
+		if (!session.user) await session.initialize();
+		const userId = session.user?.id;
+		if (!userId) return void loadItems();
+		libraryCacheKey = userCacheKey(
+			session.bootstrap?.jellyfin?.server.id,
+			userId,
+			`library:${kind}`
+		);
+		const cached = readCache<BaseItemDto[]>(libraryCacheKey, LIBRARY_CACHE_MS);
+		if (cached) {
+			items = cached.value;
+			loading = false;
+		}
+		if (!cached || cached.stale) await loadItems(Boolean(cached));
+	});
 
-	async function loadItems() {
-		loading = true;
+	async function loadItems(background = false) {
+		if (!background) loading = true;
 		error = null;
 		try {
 			await session.initialize();
 			const api = session.api;
 			const userId = session.user?.id;
 			if (!api || !userId) throw new Error('Your Jellyfin session is not available.');
+			libraryCacheKey ||= userCacheKey(
+				session.bootstrap?.jellyfin?.server.id,
+				userId,
+				`library:${kind}`
+			);
 
 			const view = (await loadSupportedUserViews(api, userId)).find(
 				(candidate) => candidate.type === config.viewType
 			);
 			if (!view) {
 				items = [];
+				writeCache(libraryCacheKey, items);
 				return;
 			}
 
@@ -158,10 +182,11 @@
 				if (item.Id) byId.set(item.Id, item);
 			}
 			items = [...byId.values()];
+			writeCache(libraryCacheKey, items);
 		} catch (reason) {
-			error = reason instanceof Error ? reason.message : config.loadError;
+			if (!background) error = reason instanceof Error ? reason.message : config.loadError;
 		} finally {
-			loading = false;
+			if (!background) loading = false;
 		}
 	}
 
@@ -256,7 +281,7 @@
 			<AlertTitle>{config.unavailable}</AlertTitle>
 			<AlertDescription class="flex flex-wrap items-center justify-between gap-3">
 				<span>{error}</span>
-				<Button variant="outline" size="sm" onclick={loadItems}>
+				<Button variant="outline" size="sm" onclick={() => loadItems()}>
 					<RotateCcwIcon data-icon="inline-start" />
 					Try again
 				</Button>

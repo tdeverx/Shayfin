@@ -60,6 +60,7 @@ const featuredMovie = {
 	RunTimeTicks: 7_200_000_000,
 	Taglines: ['Beyond the mapped edge.'],
 	Overview: 'A salvage crew follows a quiet signal beyond the mapped edge of space.',
+	BackdropImageTags: ['featured-backdrop'],
 	ProviderIds: { Tmdb: '1001' }
 };
 
@@ -281,6 +282,15 @@ export async function mockAuthenticatedApp(
 				status: 200,
 				contentType: 'image/svg+xml',
 				body: '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" />'
+			});
+			return;
+		}
+
+		if (/^\/Items\/[^/]+\/Images\//.test(path)) {
+			await route.fulfill({
+				status: 200,
+				contentType: 'image/svg+xml',
+				body: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="9"><rect width="16" height="9" fill="#333"/></svg>'
 			});
 			return;
 		}
