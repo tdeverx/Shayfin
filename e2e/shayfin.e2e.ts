@@ -76,6 +76,21 @@ test.describe('authenticated media shell', () => {
 		await page.goto('/home');
 
 		await expect(page.getByRole('heading', { name: 'Nebula Run' })).toBeVisible();
+		await expect(page.getByText('Beyond the mapped edge.')).toBeVisible();
+		await expect(
+			page.getByText('A salvage crew follows a quiet signal beyond the mapped edge of space.')
+		).toHaveCount(0);
+		const hero = page.getByRole('region', { name: 'Nebula Run' });
+		const play = hero.getByRole('link', { name: 'Play' });
+		await expect
+			.poll(() => play.evaluate((element) => getComputedStyle(element.parentElement!).opacity))
+			.toBe('0');
+		await hero.hover();
+		await expect
+			.poll(() => play.evaluate((element) => getComputedStyle(element.parentElement!).opacity))
+			.toBe('1');
+		await expect(play).toBeVisible();
+		await expect(hero.getByRole('link', { name: 'Details' })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Continue watching' })).toBeVisible();
 		await expect(page.getByText('The Arrival')).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Next up' })).toBeVisible();
@@ -93,7 +108,9 @@ test.describe('authenticated media shell', () => {
 		await expect(page.getByRole('heading', { name: 'Signal Fire' })).toBeVisible();
 		await expect(page.getByRole('region', { name: 'Continue Watching / Next Up' })).toBeVisible();
 		await expect(page.getByRole('region', { name: 'Staff Picks' })).toHaveCount(0);
-		await page.getByRole('button', { name: 'Next featured item' }).click();
+		await expect(page.getByRole('button', { name: 'Next featured item' })).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'Previous featured item' })).toHaveCount(0);
+		await page.getByRole('button', { name: 'Show Quiet Harbor' }).click();
 		await expect(page.getByRole('heading', { name: 'Quiet Harbor' })).toBeVisible();
 	});
 
@@ -101,14 +118,18 @@ test.describe('authenticated media shell', () => {
 		await mockAuthenticatedApp(page);
 		await page.goto('/movies');
 
-		await expect(page.getByRole('heading', { name: 'Movies' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Movies' })).toHaveCount(1);
 		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
-		await expect(page.getByText('1 titles')).toBeVisible();
-		await expect(page.getByRole('button', { name: 'Sort movies' })).toContainText('Title');
+		await expect(page.getByRole('textbox', { name: 'Search movies' })).toHaveCount(0);
+		await page.getByRole('button', { name: 'Filter movies' }).click();
+		const filters = page.getByRole('dialog', { name: 'Movies filters' });
+		await expect(filters).toBeVisible();
+		await expect(filters.getByText('1 titles')).toBeVisible();
+		await expect(filters.getByRole('button', { name: 'Sort movies' })).toContainText('Title');
 
-		await page.getByRole('textbox', { name: 'Search movies' }).fill('missing');
+		await filters.getByRole('textbox', { name: 'Search movies' }).fill('missing');
 		await expect(page.getByText('No matching movies')).toBeVisible();
-		await page.getByRole('button', { name: 'Clear filters' }).click();
+		await filters.getByRole('button', { name: 'Clear filters' }).click();
 		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
 	});
 
@@ -116,15 +137,37 @@ test.describe('authenticated media shell', () => {
 		await mockAuthenticatedApp(page);
 		await page.goto('/series');
 
-		await expect(page.getByRole('heading', { name: 'Shows' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Shows' })).toHaveCount(1);
 		await expect(page.getByText('Signal House', { exact: true })).toBeVisible();
-		await expect(page.getByText('1 series')).toBeVisible();
-		await expect(page.getByRole('textbox', { name: 'Search series' })).toHaveAttribute(
+		await page.getByRole('button', { name: 'Filter shows' }).click();
+		const filters = page.getByRole('dialog', { name: 'Shows filters' });
+		await expect(filters.getByText('1 series')).toBeVisible();
+		await expect(filters.getByRole('textbox', { name: 'Search series' })).toHaveAttribute(
 			'placeholder',
 			'Search shows or genres'
 		);
-		await page.getByRole('button', { name: 'Sort series' }).click();
+		await filters.getByRole('button', { name: 'Sort series' }).click();
 		await expect(page.getByRole('option', { name: 'First aired' })).toBeVisible();
+	});
+
+	test('keeps profile in the media shell instead of settings navigation', async ({ page }) => {
+		await mockAuthenticatedApp(page, { admin: true });
+		await page.goto('/profile');
+
+		await expect(page.locator('[data-slot="sidebar-wrapper"]')).toHaveCount(0);
+		await expect(page.getByRole('navigation', { name: 'Media' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Toggle settings sidebar' })).toHaveCount(0);
+	});
+
+	test('moves detail back navigation into the context-aware header', async ({ page }) => {
+		await mockAuthenticatedApp(page);
+		await page.goto('/home');
+		await page.goto('/item/movie-featured');
+
+		const back = page.getByRole('button', { name: 'Back to previous page' });
+		await expect(back).toBeVisible();
+		await back.click();
+		await expect(page).toHaveURL(/\/home$/);
 	});
 
 	test('preserves local Cmd/Ctrl+K search when Seerr is unavailable', async ({ page }) => {

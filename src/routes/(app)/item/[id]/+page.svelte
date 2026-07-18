@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { goto } from '$app/navigation';
 	import { onDestroy } from 'svelte';
-	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import HeartIcon from '@lucide/svelte/icons/heart';
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
@@ -121,11 +119,6 @@
 		}
 	}
 
-	function goBack() {
-		if (history.length > 1) history.back();
-		else void goto(resolve('/home'));
-	}
-
 	async function playTheme(url: string) {
 		if (!session.themeAudioEnabled || url !== themeUrl) return;
 		try {
@@ -176,13 +169,6 @@
 	</Empty.Root>
 {:else}
 	<article class="flex flex-col gap-8">
-		{#snippet topAction()}
-			<Button variant="secondary" size="sm" onclick={goBack} aria-label="Back to previous page">
-				<ArrowLeftIcon data-icon="inline-start" />
-				Back
-			</Button>
-		{/snippet}
-
 		{#snippet metadata()}
 			<Badge>{item?.Type ?? 'Video'}</Badge>
 			{#if item?.ProductionYear}<Badge variant="secondary">{item.ProductionYear}</Badge>{/if}
@@ -212,11 +198,9 @@
 			{logoUrl}
 			description={item.Overview}
 			tagline={item.Taglines?.[0]}
-			{posterUrl}
 			headingId="item-title"
 			{metadata}
 			{actions}
-			{topAction}
 		/>
 
 		{#if series && series.seasons.length > 0}
@@ -313,22 +297,31 @@
 			</Card>
 			<Card>
 				<CardHeader><CardTitle>About</CardTitle></CardHeader>
-				<CardContent class="space-y-3 text-sm text-muted-foreground">
-					{#if item.Genres?.length}<p>
-							<strong class="text-foreground">Genres</strong><br />{item.Genres.join(', ')}
-						</p>{/if}
-					{#if item.Studios?.length}<p>
-							<strong class="text-foreground">Studio</strong><br />{item.Studios.map(
-								(studio) => studio.Name
-							)
-								.filter(Boolean)
-								.join(', ')}
-						</p>{/if}
-					{#if item.PremiereDate}<p>
-							<strong class="text-foreground">Released</strong><br />{new Date(
-								item.PremiereDate
-							).toLocaleDateString()}
-						</p>{/if}
+				<CardContent class="flex flex-col gap-4 text-sm text-muted-foreground sm:flex-row">
+					{#if posterUrl}
+						<img
+							src={posterUrl}
+							alt={`${item.Name ?? 'Media'} poster`}
+							class="aspect-[2/3] w-32 shrink-0 rounded-4xl object-cover"
+						/>
+					{/if}
+					<div class="flex min-w-0 flex-col gap-3">
+						{#if item.Genres?.length}<p>
+								<strong class="text-foreground">Genres</strong><br />{item.Genres.join(', ')}
+							</p>{/if}
+						{#if item.Studios?.length}<p>
+								<strong class="text-foreground">Studio</strong><br />{item.Studios.map(
+									(studio) => studio.Name
+								)
+									.filter(Boolean)
+									.join(', ')}
+							</p>{/if}
+						{#if item.PremiereDate}<p>
+								<strong class="text-foreground">Released</strong><br />{new Date(
+									item.PremiereDate
+								).toLocaleDateString()}
+							</p>{/if}
+					</div>
 				</CardContent>
 			</Card>
 		</div>

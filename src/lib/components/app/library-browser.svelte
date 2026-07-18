@@ -13,11 +13,14 @@
 	import { getItemsApi } from '@jellyfin/sdk/lib/utils/api/items-api.js';
 	import { toMediaCard } from '$lib/app/media';
 	import { session } from '$lib/app/session.svelte';
+	import { headerContext } from '$lib/app/header-context.svelte';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import { Button } from '$lib/components/ui/button';
 	import * as Empty from '$lib/components/ui/empty';
+	import * as Field from '$lib/components/ui/field';
 	import * as InputGroup from '$lib/components/ui/input-group';
 	import * as Select from '$lib/components/ui/select';
+	import * as Sheet from '$lib/components/ui/sheet';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 	import { loadSupportedUserViews } from '$lib/jellyfin';
@@ -99,6 +102,21 @@
 					.filter((item) => item !== null)
 			: []
 	);
+	let countDescription = $derived(
+		loading || error
+			? `Refine your ${config.countLabel}.`
+			: cards.length === items.length
+				? `${items.length} ${config.countLabel}`
+				: `${cards.length} of ${items.length} ${config.countLabel}`
+	);
+
+	$effect(() => {
+		headerContext.hasActiveFilters =
+			query.trim().length > 0 || filter !== 'all' || sort !== 'title';
+		return () => {
+			headerContext.hasActiveFilters = false;
+		};
+	});
 
 	onMount(loadItems);
 
@@ -154,22 +172,84 @@
 	function chooseSort(value: unknown) {
 		if (value === 'title' || value === 'recent' || value === 'year') sort = value;
 	}
+
+	function clearFilters() {
+		query = '';
+		filter = 'all';
+		sort = 'title';
+	}
 </script>
 
 <svelte:head><title>{config.title} · Shayfin</title></svelte:head>
 
-<div class="mx-auto w-full max-w-7xl space-y-6">
-	<header class="space-y-1">
-		<p class="text-sm text-muted-foreground">Your Jellyfin libraries</p>
-		<h1 class="text-3xl font-semibold tracking-tight">{config.title}</h1>
-		{#if !loading && !error}
-			<p class="text-sm text-muted-foreground">
-				{cards.length === items.length
-					? `${items.length} ${config.countLabel}`
-					: `${cards.length} of ${items.length} ${config.countLabel}`}
-			</p>
-		{/if}
-	</header>
+<div class="mx-auto flex w-full max-w-7xl flex-col gap-6">
+	<h1 class="sr-only">{config.title}</h1>
+
+	<Sheet.Root bind:open={headerContext.filterOpen}>
+		<Sheet.Content side="right">
+			<Sheet.Header>
+				<Sheet.Title>{config.title} filters</Sheet.Title>
+				<Sheet.Description>{countDescription}</Sheet.Description>
+			</Sheet.Header>
+			<div class="px-6">
+				<Field.Group>
+					<Field.Field>
+						<Field.Label for={`${kind}-query`}>Search this library</Field.Label>
+						<InputGroup.Root>
+							<InputGroup.Addon><SearchIcon /></InputGroup.Addon>
+							<InputGroup.Input
+								id={`${kind}-query`}
+								bind:value={query}
+								aria-label={`Search ${kind}`}
+								placeholder={config.searchPlaceholder}
+							/>
+						</InputGroup.Root>
+					</Field.Field>
+
+					<Field.Field>
+						<Field.Label>Watch status</Field.Label>
+						<ToggleGroup.Root
+							type="single"
+							value={filter}
+							onValueChange={chooseFilter}
+							variant="outline"
+							aria-label={`Filter ${kind}`}
+						>
+							<ToggleGroup.Item value="all">All</ToggleGroup.Item>
+							<ToggleGroup.Item value="unplayed">Unplayed</ToggleGroup.Item>
+							<ToggleGroup.Item value="favorites">Favorites</ToggleGroup.Item>
+						</ToggleGroup.Root>
+					</Field.Field>
+
+					<Field.Field>
+						<Field.Label for={`${kind}-sort`}>Sort by</Field.Label>
+						<Select.Root type="single" value={sort} onValueChange={chooseSort}>
+							<Select.Trigger id={`${kind}-sort`} class="w-full" aria-label={`Sort ${kind}`}>
+								<span data-slot="select-value">
+									{sort === 'title'
+										? 'Title'
+										: sort === 'recent'
+											? 'Recently added'
+											: config.yearLabel}
+								</span>
+							</Select.Trigger>
+							<Select.Content>
+								<Select.Group>
+									<Select.Item value="title">Title</Select.Item>
+									<Select.Item value="recent">Recently added</Select.Item>
+									<Select.Item value="year">{config.yearLabel}</Select.Item>
+								</Select.Group>
+							</Select.Content>
+						</Select.Root>
+					</Field.Field>
+				</Field.Group>
+			</div>
+			<Sheet.Footer>
+				<Button onclick={() => (headerContext.filterOpen = false)}>Done</Button>
+				<Button variant="outline" onclick={clearFilters}>Clear filters</Button>
+			</Sheet.Footer>
+		</Sheet.Content>
+	</Sheet.Root>
 
 	{#if error}
 		<Alert variant="destructive">
@@ -183,43 +263,7 @@
 			</AlertDescription>
 		</Alert>
 	{:else}
-		<div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-			<InputGroup.Root class="w-full lg:max-w-sm">
-				<InputGroup.Addon><SearchIcon /></InputGroup.Addon>
-				<InputGroup.Input
-					bind:value={query}
-					aria-label={`Search ${kind}`}
-					placeholder={config.searchPlaceholder}
-				/>
-			</InputGroup.Root>
-
-			<div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-				<ToggleGroup.Root
-					type="single"
-					value={filter}
-					onValueChange={chooseFilter}
-					variant="outline"
-					aria-label={`Filter ${kind}`}
-				>
-					<ToggleGroup.Item value="all">All</ToggleGroup.Item>
-					<ToggleGroup.Item value="unplayed">Unplayed</ToggleGroup.Item>
-					<ToggleGroup.Item value="favorites">Favorites</ToggleGroup.Item>
-				</ToggleGroup.Root>
-
-				<Select.Root type="single" value={sort} onValueChange={chooseSort}>
-					<Select.Trigger class="w-full sm:w-44" aria-label={`Sort ${kind}`}>
-						<span data-slot="select-value">
-							{sort === 'title' ? 'Title' : sort === 'recent' ? 'Recently added' : config.yearLabel}
-						</span>
-					</Select.Trigger>
-					<Select.Content>
-						<Select.Item value="title">Title</Select.Item>
-						<Select.Item value="recent">Recently added</Select.Item>
-						<Select.Item value="year">{config.yearLabel}</Select.Item>
-					</Select.Content>
-				</Select.Root>
-			</div>
-		</div>
+		<!-- Filters are intentionally hosted in the context-aware header Sheet. -->
 	{/if}
 
 	{#if loading}
@@ -227,7 +271,7 @@
 			class="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
 		>
 			{#each Array.from({ length: 12 }, (_, index) => index) as index (index)}
-				<div class="space-y-2">
+				<div class="flex flex-col gap-2">
 					<Skeleton class="aspect-[2/3] w-full rounded-4xl" />
 					<Skeleton class="h-4 w-4/5" />
 					<Skeleton class="h-3 w-12" />
@@ -247,13 +291,7 @@
 			</Empty.Header>
 			{#if items.length}
 				<Empty.Content>
-					<Button
-						variant="outline"
-						onclick={() => {
-							query = '';
-							filter = 'all';
-						}}>Clear filters</Button
-					>
+					<Button variant="outline" onclick={clearFilters}>Clear filters</Button>
 				</Empty.Content>
 			{/if}
 		</Empty.Root>

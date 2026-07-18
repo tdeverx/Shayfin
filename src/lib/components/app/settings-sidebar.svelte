@@ -3,7 +3,6 @@
 	import { resolve } from '$app/paths';
 	import type { ResolvedPathname } from '$app/types';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
-	import CircleUserIcon from '@lucide/svelte/icons/circle-user';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import GaugeIcon from '@lucide/svelte/icons/gauge';
 	import LinkIcon from '@lucide/svelte/icons/link';
@@ -26,10 +25,7 @@
 		serverVersion?: string;
 	} = $props();
 
-	const userItems = [
-		{ label: 'Settings', href: '/settings', icon: SlidersHorizontalIcon },
-		{ label: 'Profile', href: '/profile', icon: CircleUserIcon }
-	];
+	const userItems = [{ label: 'Settings', href: '/settings', icon: SlidersHorizontalIcon }];
 	const adminGroups = [
 		{
 			label: 'Administration',

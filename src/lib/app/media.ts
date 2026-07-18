@@ -90,6 +90,7 @@ export function toSpotlight(api: Api, item: BaseItemDto): SpotlightModel | null 
 		...card,
 		backdropUrl: backdropForItem(api, item, 1600) ?? card.imageUrl,
 		logoUrl: logoForItem(api, item, 720),
+		tagline: item.Taglines?.[0] ?? undefined,
 		overview: item.Overview ?? undefined,
 		rating: item.OfficialRating ?? undefined,
 		runtime: formatRuntime(item.RunTimeTicks)

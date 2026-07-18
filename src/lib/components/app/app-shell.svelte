@@ -1,11 +1,16 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
+	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import SearchIcon from '@lucide/svelte/icons/search';
+	import SlidersHorizontalIcon from '@lucide/svelte/icons/sliders-horizontal';
 	import * as Sidebar from '$lib/components/ui/sidebar';
 	import { Button } from '$lib/components/ui/button';
 	import { Tooltip, TooltipContent, TooltipTrigger } from '$lib/components/ui/tooltip';
+	import { headerContext } from '$lib/app/header-context.svelte';
 	import type { AppUser, MediaNavigationItem } from '$lib/app/models';
 	import MediaPill from './media-pill.svelte';
 	import ProfileMenu from './profile-menu.svelte';
@@ -33,11 +38,21 @@
 	let settingsContext = $derived(
 		page.url.pathname === '/settings' ||
 			page.url.pathname.startsWith('/settings/') ||
-			page.url.pathname === '/profile' ||
-			page.url.pathname.startsWith('/profile/') ||
 			page.url.pathname === '/admin' ||
 			page.url.pathname.startsWith('/admin/')
 	);
+	let detailContext = $derived(page.url.pathname.startsWith('/item/'));
+	let libraryContext = $derived(page.url.pathname === '/movies' || page.url.pathname === '/series');
+	let libraryLabel = $derived(page.url.pathname === '/series' ? 'shows' : 'movies');
+
+	function goBack() {
+		if (history.length > 1) history.back();
+		else void goto(resolve('/home'));
+	}
+
+	$effect(() => {
+		if (!libraryContext) headerContext.resetFilters();
+	});
 
 	onMount(() => {
 		const stored = document.cookie
@@ -50,8 +65,27 @@
 </script>
 
 {#snippet Chrome()}
-	<div class="fixed top-3 left-3 z-30">
+	<div class="fixed top-3 left-3 z-30 flex items-center gap-2">
 		<ProfileMenu {user} {onLogout} />
+		{#if detailContext}
+			<Tooltip>
+				<TooltipTrigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							variant="secondary"
+							size="icon-lg"
+							class="rounded-full bg-background/80 backdrop-blur"
+							aria-label="Back to previous page"
+							onclick={goBack}
+						>
+							<ArrowLeftIcon />
+						</Button>
+					{/snippet}
+				</TooltipTrigger>
+				<TooltipContent>Back</TooltipContent>
+			</Tooltip>
+		{/if}
 	</div>
 	{#if settingsContext}
 		<Sidebar.Trigger
@@ -60,7 +94,26 @@
 		/>
 	{/if}
 	<MediaPill items={navigation} />
-	<div class="fixed top-3 right-3 z-30">
+	<div class="fixed top-3 right-3 z-30 flex items-center gap-2">
+		{#if libraryContext}
+			<Tooltip>
+				<TooltipTrigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							variant={headerContext.hasActiveFilters ? 'default' : 'secondary'}
+							size="icon-lg"
+							class="rounded-full backdrop-blur"
+							aria-label={`Filter ${libraryLabel}`}
+							onclick={() => headerContext.openFilters()}
+						>
+							<SlidersHorizontalIcon />
+						</Button>
+					{/snippet}
+				</TooltipTrigger>
+				<TooltipContent>Filter {libraryLabel}</TooltipContent>
+			</Tooltip>
+		{/if}
 		<Tooltip>
 			<TooltipTrigger>
 				{#snippet child({ props })}

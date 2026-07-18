@@ -58,6 +58,7 @@ const featuredMovie = {
 	ProductionYear: 2025,
 	OfficialRating: 'PG-13',
 	RunTimeTicks: 7_200_000_000,
+	Taglines: ['Beyond the mapped edge.'],
 	Overview: 'A salvage crew follows a quiet signal beyond the mapped edge of space.',
 	ProviderIds: { Tmdb: '1001' }
 };

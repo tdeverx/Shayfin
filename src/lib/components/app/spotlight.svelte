@@ -30,7 +30,7 @@
 	{#if item.year}<Badge variant="secondary">{item.year}</Badge>{/if}
 	{#if item.rating}<span>{item.rating}</span>{/if}
 	{#if item.runtime}<span>{item.runtime}</span>{/if}
-	{#if item.secondary}<span>{item.secondary}</span>{/if}
+	{#if item.secondary && item.secondary !== String(item.year)}<span>{item.secondary}</span>{/if}
 {/snippet}
 
 {#snippet actions()}
@@ -50,13 +50,14 @@
 	title={item.title}
 	backdropUrl={item.backdropUrl ?? item.imageUrl}
 	logoUrl={item.logoUrl}
-	description={item.overview}
+	tagline={item.tagline}
 	headingId="spotlight-title"
 	{trailer}
 	{showTrailer}
 	{paused}
 	{metadata}
 	{actions}
+	actionsOnHover
 	{onTrailerProgress}
 	{onTrailerEnded}
 	{onTrailerUnavailable}

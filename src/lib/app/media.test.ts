@@ -48,6 +48,7 @@ describe('logo artwork', () => {
 			Id: 'movie-1',
 			Name: 'Logo Movie',
 			Type: 'Movie',
+			Taglines: ['The logo has landed.'],
 			ImageTags: { Logo: 'logo-tag' }
 		};
 		const logo = new URL(logoForItem(api, item, 720)!);
@@ -56,6 +57,7 @@ describe('logo artwork', () => {
 		expect(logo.searchParams.get('tag')).toBe('logo-tag');
 		expect(logo.searchParams.get('maxWidth')).toBe('720');
 		expect(toSpotlight(api, item)?.logoUrl).toBe(logo.toString());
+		expect(toSpotlight(api, item)?.tagline).toBe('The logo has landed.');
 	});
 
 	it('falls back to a parent logo for episodes', () => {

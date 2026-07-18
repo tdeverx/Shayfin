@@ -28,6 +28,7 @@ export interface MediaCardModel {
 
 export interface SpotlightModel extends MediaCardModel {
 	logoUrl?: string;
+	tagline?: string;
 	overview?: string;
 	rating?: string;
 	runtime?: string;
