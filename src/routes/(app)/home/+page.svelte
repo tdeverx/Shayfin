@@ -11,6 +11,7 @@
 		type HomeSectionModel
 	} from '$lib/jellyfin';
 	import DownloadStrip from '$lib/components/app/download-strip.svelte';
+	import CollectionFeature from '$lib/components/app/collection-feature.svelte';
 	import MediaRail from '$lib/components/app/media-rail.svelte';
 	import Spotlight from '$lib/components/app/spotlight.svelte';
 	import * as Empty from '$lib/components/ui/empty';
@@ -26,11 +27,15 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let themeAvailable = $state(false);
+	let themeUrl = $state<string | null>(null);
+	let themeItemId = $state<string | null>(null);
+	let retryThemeOnInteraction: (() => void) | null = null;
 	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
 	let spotlight = $derived.by(() => {
 		const api = session.api;
-		const item = sections.find((section) => section.variant === 'spotlight')?.items[0];
+		const first = sections[0];
+		const item = first?.variant === 'collection' ? undefined : first?.items[0];
 		return api && item ? toSpotlight(api, item) : null;
 	});
 
@@ -38,18 +43,30 @@
 		const api = session.api;
 		if (!api) return [];
 		return sections
-			.filter((section) => section.variant !== 'spotlight')
 			.map((section, sectionIndex): MediaSectionModel => {
 				const seen = new SvelteSet<string>();
+				const promotedId =
+					sectionIndex === 0 && section.variant !== 'collection' ? section.items[0]?.Id : undefined;
 				return {
 					id: `${section.id}-${section.order}-${sectionIndex}`,
 					title: section.title,
-					variant: section.variant === 'portrait' ? 'portrait' : 'landscape',
+					variant:
+						section.variant === 'collection'
+							? 'collection'
+							: section.variant === 'portrait'
+								? 'portrait'
+								: 'landscape',
+					backdropUrl: section.items
+						.map((item) => toMediaCard(api, item, 'landscape')?.backdropUrl)
+						.find(Boolean),
 					items: section.items.flatMap((item) => {
+						if (item.Id === promotedId) return [];
 						const card = toMediaCard(
 							api,
 							item,
-							section.variant === 'portrait' ? 'portrait' : 'landscape'
+							section.variant === 'portrait' || section.variant === 'collection'
+								? 'portrait'
+								: 'landscape'
 						);
 						if (!card || seen.has(card.id)) return [];
 						seen.add(card.id);
@@ -68,7 +85,7 @@
 		try {
 			const plugin = await new HomeScreenSectionsAdapter(api).loadHome(userId, navigator.language);
 			sections = plugin.data?.length ? plugin.data : await loadDefaultHome(api, userId);
-			await probeTheme(sections.find((section) => section.variant === 'spotlight')?.items[0]);
+			await probeTheme(sections[0]?.variant === 'collection' ? undefined : sections[0]?.items[0]);
 		} catch (reason) {
 			error = reason instanceof Error ? reason.message : 'Your home screen could not be loaded.';
 		} finally {
@@ -78,28 +95,52 @@
 
 	async function probeTheme(item?: BaseItemDto) {
 		themeAvailable = false;
-		if (!session.api || !item?.Id || !session.themeAudioEnabled) return;
-		try {
-			const songs = await loadThemeSongs(session.api, item.Id, session.user?.id);
-			themeAvailable = songs.length > 0;
-		} catch {
-			themeAvailable = false;
+		themeUrl = null;
+		themeItemId = null;
+		if (!session.api || !item?.Id) return;
+		const candidates = [item.Id, item.SeriesId].filter((id): id is string => Boolean(id));
+		for (const id of candidates) {
+			try {
+				const songs = await loadThemeSongs(session.api, id, session.user?.id);
+				if (songs[0]) {
+					themeAvailable = true;
+					themeUrl = songs[0].streamUrl;
+					themeItemId = id;
+					return;
+				}
+			} catch {
+				// Try the parent series when an episode has no theme of its own.
+			}
 		}
 	}
 
-	async function playTheme() {
-		if (!session.api || !spotlight || !session.themeAudioEnabled) {
+	async function playTheme(manual = true) {
+		if (!themeUrl || !session.themeAudioEnabled) {
+			if (!manual) return;
 			toast.info('Enable theme music from the sound button first.');
 			return;
 		}
 		try {
-			const songs = await loadThemeSongs(session.api, spotlight.id, session.user?.id);
-			if (!songs[0]) return;
-			await themeAudio.play(songs[0].streamUrl);
+			await themeAudio.play(themeUrl);
 		} catch {
-			toast.error('Theme music could not be played.');
+			if (manual) toast.error('Theme music could not be played.');
+			else if (!retryThemeOnInteraction) {
+				retryThemeOnInteraction = () => {
+					retryThemeOnInteraction = null;
+					void playTheme(false);
+				};
+				document.addEventListener('pointerdown', retryThemeOnInteraction, { once: true });
+			}
 		}
 	}
+
+	$effect(() => {
+		const enabled = session.themeAudioEnabled;
+		const url = themeUrl;
+		const id = themeItemId;
+		if (enabled && url && id) queueMicrotask(() => void playTheme(false));
+		else themeAudio.fadeAndStop();
+	});
 
 	async function loadDownloads() {
 		if (!session.accessToken) return;
@@ -143,6 +184,8 @@
 			clearInterval(poll);
 			clearTimeout(refreshTimer);
 			document.removeEventListener('visibilitychange', visibility);
+			if (retryThemeOnInteraction)
+				document.removeEventListener('pointerdown', retryThemeOnInteraction);
 			themeAudio.fadeAndStop();
 		};
 	});
@@ -186,6 +229,10 @@
 				onThemeAudio={playTheme}
 			/>{/if}
 		<DownloadStrip {downloads} />
-		{#each rails as section (section.id)}<MediaRail {section} />{/each}
+		{#each rails as section (section.id)}
+			{#if section.variant === 'collection'}<CollectionFeature {section} />{:else}<MediaRail
+					{section}
+				/>{/if}
+		{/each}
 	</div>
 {/if}

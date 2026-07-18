@@ -4,13 +4,15 @@
 	import type { ResolvedPathname } from '$app/types';
 	import { onMount } from 'svelte';
 	import type { Snippet } from 'svelte';
-	import { searchLocalMedia, dedupeAgainstLocal } from '$lib/jellyfin';
+	import { toast } from 'svelte-sonner';
+	import { AchievementBadgesAdapter, searchLocalMedia, dedupeAgainstLocal } from '$lib/jellyfin';
 	import AppShell from '$lib/components/app/app-shell.svelte';
 	import RequestDialog from '$lib/components/app/request-dialog.svelte';
 	import SearchCommand from '$lib/components/app/search-command.svelte';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { session } from '$lib/app/session.svelte';
 	import { themeAudio } from '$lib/app/theme-audio';
+	import { imageForItem } from '$lib/app/media';
 	import type { UnifiedSearchItem } from '$lib/app/models';
 	import type { ProviderIdentifiable } from '$lib/jellyfin';
 	import type { UnifiedSearchResult } from '$lib/server/contracts';
@@ -25,6 +27,7 @@
 	let selectedRequest = $state<UnifiedSearchItem | null>(null);
 	let requestOpen = $state(false);
 	let themeAudioEnabled = $state(false);
+	let knownAchievementIds: Set<string> | null = null;
 	const resolvePath = resolve as (path: string) => ResolvedPathname;
 
 	onMount(async () => {
@@ -46,6 +49,34 @@
 			session.setThemeAudio(themeAudioEnabled);
 			if (!themeAudioEnabled) themeAudio.fadeAndStop();
 		}
+	});
+
+	$effect(() => {
+		const api = session.api;
+		const userId = session.user?.id;
+		if (!ready || !api || !userId) return;
+		let active = true;
+		const poll = async () => {
+			const result = await new AchievementBadgesAdapter(api).getRecent(userId, 20);
+			if (!active || result.status !== 'available' || !result.data) return;
+			const current = new Set(
+				result.data.filter((badge) => badge.unlocked).map((badge) => badge.id)
+			);
+			if (knownAchievementIds) {
+				for (const badge of result.data) {
+					if (badge.unlocked && !knownAchievementIds.has(badge.id)) {
+						toast.success('Achievement unlocked', { description: badge.title });
+					}
+				}
+			}
+			knownAchievementIds = current;
+		};
+		void poll();
+		const timer = setInterval(() => void poll(), 30_000);
+		return () => {
+			active = false;
+			clearInterval(timer);
+		};
 	});
 
 	$effect(() => {
@@ -74,6 +105,9 @@
 						title: result.name,
 						kind: result.mediaType,
 						year: result.year,
+						imageUrl: imageForItem(api, result.item, 180),
+						overview: result.item.Overview ?? undefined,
+						secondary: result.subtitle,
 						href: `/item/${encodeURIComponent(result.id)}`
 					}));
 					return local.map((result) => ({
@@ -115,7 +149,11 @@
 				title: result.title,
 				kind: result.mediaType,
 				requestStatus: result.requestStatus ?? (result.requested ? result.availability : undefined),
-				tmdbId: Number(result.providerIds.tmdb)
+				tmdbId: Number(result.providerIds.tmdb),
+				imageUrl: result.posterPath
+					? `https://image.tmdb.org/t/p/w185${result.posterPath}`
+					: undefined,
+				overview: result.overview
 			}));
 			searchLoading = false;
 		}, 220);

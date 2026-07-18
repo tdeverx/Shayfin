@@ -8,7 +8,6 @@
 	import TvIcon from '@lucide/svelte/icons/tv';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import { Button } from '$lib/components/ui/button';
-	import { Separator } from '$lib/components/ui/separator';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 	import type { MediaNavigationItem } from '$lib/app/models';
 
@@ -35,19 +34,36 @@
 
 <nav
 	aria-label="Media"
-	class="fixed top-3 left-1/2 z-30 flex max-w-[calc(100vw-7rem)] -translate-x-1/2 items-center rounded-full border border-border bg-background/95 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80"
+	class="fixed top-3 left-1/2 z-30 flex max-w-[calc(100vw-8.5rem)] -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-background/95 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80"
 >
-	<ToggleGroup.Root type="single" value={active} onValueChange={select} aria-label="Media type">
+	<ToggleGroup.Root
+		type="single"
+		value={active}
+		onValueChange={select}
+		aria-label="Media type"
+		spacing={1}
+	>
 		{#each items as item (item.id)}
 			{@const Icon = icons[item.id]}
-			<ToggleGroup.Item value={item.id} aria-label={item.label} class="rounded-full px-3">
+			<ToggleGroup.Item
+				value={item.id}
+				aria-label={item.label}
+				class="rounded-full px-3 data-[state=on]:bg-muted data-[state=on]:shadow-sm"
+			>
 				<Icon data-icon="inline-start" />
 				<span class="hidden sm:inline">{item.label}</span>
 			</ToggleGroup.Item>
 		{/each}
 	</ToggleGroup.Root>
-	<Separator orientation="vertical" class="mx-1 h-6" />
-	<Button variant="ghost" size="icon" class="rounded-full" aria-label="Search" onclick={onSearch}>
-		<SearchIcon />
+	<Button
+		variant="secondary"
+		size="sm"
+		class="rounded-full shadow-none"
+		aria-label="Search"
+		onclick={onSearch}
+	>
+		<SearchIcon data-icon="inline-start" />
+		<span class="hidden md:inline">Search</span>
+		<span class="hidden text-xs text-muted-foreground lg:inline">⌘K</span>
 	</Button>
 </nav>

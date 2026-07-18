@@ -51,6 +51,18 @@ test.describe('authenticated media shell', () => {
 		await expect(page.getByRole('link', { name: 'Integrations' })).toBeVisible();
 		await expect(page.getByText('Jellyfin connected')).toBeVisible();
 		await expect(page.getByText('Server 10.11.11')).toBeVisible();
+		const sidebarToggle = page.getByRole('button', { name: 'Toggle admin sidebar' });
+		await expect(sidebarToggle).toBeVisible();
+		await sidebarToggle.click();
+		await expect(page.locator('[data-slot="sidebar"][data-state]')).toHaveAttribute(
+			'data-state',
+			'collapsed'
+		);
+		await sidebarToggle.click();
+		await expect(page.locator('[data-slot="sidebar"][data-state]')).toHaveAttribute(
+			'data-state',
+			'expanded'
+		);
 	});
 
 	test('falls back to the restrained Jellyfin home when Home Screen Sections is absent', async ({
@@ -278,6 +290,9 @@ test.describe('profile capabilities', () => {
 		await expect(page.getByText('Seasons 1, 2')).toBeVisible();
 
 		await page.getByRole('tab', { name: 'Achievements' }).click();
+		await expect(page.getByRole('heading', { name: 'In progress' })).toBeVisible();
+		await expect(page.getByText('Movie Night')).toBeVisible();
+		await expect(page.getByText('4 of 10')).toBeVisible();
 		await expect(page.getByText('First Flight').first()).toBeVisible();
 		await expect(page.getByText('Rare').first()).toBeVisible();
 

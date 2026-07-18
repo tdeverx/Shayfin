@@ -28,6 +28,7 @@
 		GetAvatarAdapter,
 		loadProfileMedia,
 		type AchievementProfile,
+		type AchievementBadge,
 		type AvatarOption
 	} from '$lib/jellyfin';
 	import type { NormalizedMediaRequest } from '$lib/server/contracts';
@@ -57,6 +58,25 @@
 			{ label: 'Items watched', value: records.totalItemsWatched }
 		].filter((stat): stat is { label: string; value: number } => typeof stat.value === 'number');
 	});
+	let unlockedBadges = $derived(achievements?.badges.filter((badge) => badge.unlocked) ?? []);
+	let inProgressBadges = $derived.by(() =>
+		(achievements?.badges ?? [])
+			.filter((badge) => !badge.unlocked && badge.targetValue > 0)
+			.sort((a, b) => badgeProgress(b) - badgeProgress(a))
+	);
+	let achievementScanSuggested = $derived(
+		Boolean(
+			achievements &&
+			recentlyPlayed.length &&
+			achievements.summary.unlocked === 0 &&
+			achievements.badges.every((badge) => badge.currentValue === 0)
+		)
+	);
+
+	function badgeProgress(badge: AchievementBadge): number {
+		if (badge.targetValue <= 0) return badge.unlocked ? 100 : 0;
+		return Math.min(100, Math.max(0, (badge.currentValue / badge.targetValue) * 100));
+	}
 
 	onMount(loadProfile);
 
@@ -260,6 +280,16 @@
 					</h2>
 					{#if achievementDegraded}<Badge variant="outline">Partial data</Badge>{/if}
 				</div>
+				{#if achievementScanSuggested}
+					<Alert>
+						<AlertTitle>Achievement history may need a scan</AlertTitle>
+						<AlertDescription
+							>Your profile has recent Jellyfin activity, but the plugin reports no progress. An
+							administrator can run “Scan watch history” from the Achievement Badges plugin
+							settings.</AlertDescription
+						>
+					</Alert>
+				{/if}
 				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 					<Card.Root size="sm">
 						<Card.Header
@@ -418,6 +448,39 @@
 
 			{#if achievements}
 				<Tabs.Content value="achievements" class="space-y-5">
+					<section class="space-y-3">
+						<div>
+							<h2 class="text-lg font-medium tracking-tight">In progress</h2>
+							<p class="text-sm text-muted-foreground">
+								Progress is credited by Achievement Badges as you watch in Jellyfin.
+							</p>
+						</div>
+						{#if inProgressBadges.length}
+							<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+								{#each inProgressBadges.slice(0, 12) as badge (badge.id)}
+									<Card.Root size="sm">
+										<Card.Header>
+											<Card.Title>{badge.title}</Card.Title>
+											<Card.Description>{badge.description}</Card.Description>
+											<Card.Action><Badge variant="outline">{badge.category}</Badge></Card.Action>
+										</Card.Header>
+										<Card.Content class="space-y-2">
+											<Progress
+												value={badgeProgress(badge)}
+												aria-label={`${badge.title} progress`}
+											/>
+											<p class="text-xs text-muted-foreground">
+												{badge.currentValue.toLocaleString()} of {badge.targetValue.toLocaleString()}
+											</p>
+										</Card.Content>
+									</Card.Root>
+								{/each}
+							</div>
+						{:else}<p class="text-sm text-muted-foreground">
+								No achievements are currently in progress.
+							</p>{/if}
+					</section>
+
 					{#if achievements.equipped.length}
 						<section class="space-y-3">
 							<h2 class="text-lg font-medium tracking-tight">Equipped badges</h2>
@@ -437,10 +500,10 @@
 					{/if}
 
 					<section class="space-y-3">
-						<h2 class="text-lg font-medium tracking-tight">Recent unlocks</h2>
-						{#if achievements.recent.length}
+						<h2 class="text-lg font-medium tracking-tight">Unlocked</h2>
+						{#if unlockedBadges.length}
 							<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-								{#each achievements.recent as badge (badge.id)}
+								{#each unlockedBadges as badge (badge.id)}
 									<Card.Root size="sm">
 										<Card.Header
 											><Card.Title class="flex items-center gap-2"
@@ -456,7 +519,9 @@
 								{/each}
 							</div>
 						{:else}
-							<p class="text-sm text-muted-foreground">No recent badge unlocks.</p>
+							<p class="text-sm text-muted-foreground">
+								No badges unlocked yet. Your progress is shown above.
+							</p>
 						{/if}
 					</section>
 				</Tabs.Content>

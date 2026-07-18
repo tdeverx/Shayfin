@@ -63,6 +63,9 @@ export function toMediaCard(
 		kind: itemKind(item),
 		href: itemHref(item),
 		imageUrl,
+		backdropUrl: backdropTag
+			? itemImageUrl(api, item.Id, { type: 'Backdrop', tag: backdropTag, maxWidth: 1280 })
+			: undefined,
 		year: item.ProductionYear ?? undefined,
 		secondary: itemSecondary(item),
 		progress: itemProgress(item),

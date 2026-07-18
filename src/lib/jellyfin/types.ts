@@ -53,7 +53,7 @@ export interface ProviderIdentifiable {
 	providerIds: ProviderIds;
 }
 
-export type HomeSectionVariant = 'spotlight' | 'portrait' | 'landscape';
+export type HomeSectionVariant = 'spotlight' | 'portrait' | 'landscape' | 'collection';
 
 export interface HomeSectionModel {
 	id: 'spotlight' | 'resume' | 'next-up' | 'latest' | 'favorites' | string;
@@ -61,6 +61,9 @@ export interface HomeSectionModel {
 	variant: HomeSectionVariant;
 	order: number;
 	items: BaseItemDto[];
+	additionalData?: string;
+	displayTitleText?: boolean;
+	showDetailsMenu?: boolean;
 }
 
 export interface DefaultHomeData {

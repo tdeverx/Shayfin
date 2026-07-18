@@ -98,8 +98,18 @@ function decodeUserSettings(value: unknown): HomeScreenUserSettings {
 	};
 }
 
-function pluginVariant(mode: HomeScreenSectionDefinition['viewMode']): HomeSectionVariant {
-	return mode === 'portrait' || mode === 'square' ? 'portrait' : 'landscape';
+function pluginVariant(section: HomeScreenSectionDefinition): HomeSectionVariant {
+	const identity = `${section.id} ${section.title} ${section.additionalData ?? ''}`.toLowerCase();
+	if (
+		identity.includes('collection') ||
+		identity.includes('boxset') ||
+		identity.includes('box-set')
+	) {
+		return 'collection';
+	}
+	return section.viewMode === 'portrait' || section.viewMode === 'square'
+		? 'portrait'
+		: 'landscape';
 }
 
 export function applyHomeScreenSettings(
@@ -183,9 +193,12 @@ export class HomeScreenSectionsAdapter {
 						{
 							id: section.id,
 							title: section.title,
-							variant: pluginVariant(section.viewMode),
+							variant: pluginVariant(section),
 							order: section.order,
-							items: result.data
+							items: result.data,
+							additionalData: section.additionalData,
+							displayTitleText: section.displayTitleText,
+							showDetailsMenu: section.showDetailsMenu
 						} satisfies HomeSectionModel
 					]
 				: []

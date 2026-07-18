@@ -44,8 +44,8 @@
 </script>
 
 <Sidebar.Root collapsible="icon">
-	<Sidebar.Header>
-		<Sidebar.Menu>
+	<Sidebar.Header class="flex-row items-center gap-1">
+		<Sidebar.Menu class="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
 			<Sidebar.MenuItem>
 				<Sidebar.MenuButton size="lg" tooltipContent="Shayfin admin">
 					{#snippet child({ props })}
@@ -60,6 +60,10 @@
 				</Sidebar.MenuButton>
 			</Sidebar.MenuItem>
 		</Sidebar.Menu>
+		<Sidebar.Trigger
+			class="shrink-0 rounded-full border border-sidebar-border bg-sidebar group-data-[collapsible=icon]:mx-auto"
+			aria-label="Toggle admin sidebar"
+		/>
 	</Sidebar.Header>
 
 	<Sidebar.Content>

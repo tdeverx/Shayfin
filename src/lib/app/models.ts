@@ -36,8 +36,9 @@ export interface MediaSectionModel {
 	id: string;
 	title: string;
 	items: MediaCardModel[];
-	variant?: 'landscape' | 'portrait';
+	variant?: 'landscape' | 'portrait' | 'collection';
 	href?: string;
+	backdropUrl?: string;
 }
 
 export interface DownloadModel {
@@ -57,6 +58,8 @@ export interface UnifiedSearchItem {
 	kind: MediaKind;
 	year?: number;
 	imageUrl?: string;
+	overview?: string;
+	secondary?: string;
 	href?: string;
 	requestStatus?: string;
 	tmdbId?: number;

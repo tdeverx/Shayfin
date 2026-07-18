@@ -339,12 +339,24 @@ export async function mockAuthenticatedApp(
 				TargetValue: 1,
 				Rarity: 'Rare'
 			};
+			const progressBadge = {
+				Id: 'movie-night',
+				Key: 'movie_night',
+				Title: 'Movie Night',
+				Description: 'Finish ten movies.',
+				Icon: 'movie',
+				Category: 'Movies',
+				Unlocked: false,
+				CurrentValue: 4,
+				TargetValue: 10,
+				Rarity: 'Common'
+			};
 			if (path.endsWith('/recent-unlocks') || path.endsWith('/equipped')) {
 				await json(route, [badge]);
 				return;
 			}
 			if (path === `/Plugins/AchievementBadges/users/${USER_ID}`) {
-				await json(route, [badge]);
+				await json(route, [badge, progressBadge]);
 				return;
 			}
 		}
@@ -413,9 +425,7 @@ export async function mockAuthenticatedApp(
 				return;
 			}
 
-			const featured = query.get('parentid') === 'view-series'
-				? featuredSeries
-				: featuredMovie;
+			const featured = query.get('parentid') === 'view-series' ? featuredSeries : featuredMovie;
 			await json(route, { Items: [featured], TotalRecordCount: 1 });
 			return;
 		}

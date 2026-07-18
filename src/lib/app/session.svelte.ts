@@ -136,7 +136,7 @@ class SessionState {
 		if (browser) {
 			localStorage.setItem(tokenKey(this.bootstrap.jellyfin.server.id), api.accessToken);
 			this.themeAudioEnabled =
-				localStorage.getItem(themeAudioKey(this.bootstrap.jellyfin.server.id, user.Id)) === 'true';
+				localStorage.getItem(themeAudioKey(this.bootstrap.jellyfin.server.id, user.Id)) !== 'false';
 		}
 		await this.loadNavigation();
 	}

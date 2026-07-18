@@ -3,8 +3,8 @@
 	import { onMount } from 'svelte';
 	import Volume2Icon from '@lucide/svelte/icons/volume-2';
 	import VolumeXIcon from '@lucide/svelte/icons/volume-x';
-	import { Button } from '$lib/components/ui/button';
 	import * as Sidebar from '$lib/components/ui/sidebar';
+	import { Toggle } from '$lib/components/ui/toggle';
 	import { Tooltip, TooltipContent, TooltipTrigger } from '$lib/components/ui/tooltip';
 	import type { AppUser, MediaNavigationItem } from '$lib/app/models';
 	import AdminSidebar from './admin-sidebar.svelte';
@@ -34,11 +34,12 @@
 	let sidebarOpen = $state(false);
 
 	onMount(() => {
-		const wide = matchMedia('(min-width: 1536px)');
-		const sync = () => (sidebarOpen = wide.matches);
-		sync();
-		wide.addEventListener('change', sync);
-		return () => wide.removeEventListener('change', sync);
+		const stored = document.cookie
+			.split('; ')
+			.find((entry) => entry.startsWith('sidebar_state='))
+			?.split('=')[1];
+		sidebarOpen =
+			stored === undefined ? matchMedia('(min-width: 1024px)').matches : stored === 'true';
 	});
 </script>
 
@@ -48,16 +49,16 @@
 		<Tooltip>
 			<TooltipTrigger>
 				{#snippet child({ props })}
-					<Button
+					<Toggle
 						{...props}
-						variant="ghost"
-						size="icon"
-						class="hidden rounded-full bg-background/80 backdrop-blur md:inline-flex"
+						bind:pressed={themeAudioEnabled}
+						variant="default"
+						size="default"
+						class="size-10 rounded-full bg-background/80 p-0 backdrop-blur"
 						aria-label={themeAudioEnabled ? 'Disable theme music' : 'Enable theme music'}
-						onclick={() => (themeAudioEnabled = !themeAudioEnabled)}
 					>
 						{#if themeAudioEnabled}<Volume2Icon />{:else}<VolumeXIcon />{/if}
-					</Button>
+					</Toggle>
 				{/snippet}
 			</TooltipTrigger>
 			<TooltipContent>{themeAudioEnabled ? 'Theme music on' : 'Theme music off'}</TooltipContent>
