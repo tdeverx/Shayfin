@@ -77,27 +77,27 @@ test.describe('authenticated media shell', () => {
 
 		await expect(page.getByRole('heading', { name: 'Nebula Run' })).toBeVisible();
 		await expect(page.getByText('Beyond the mapped edge.')).toBeVisible();
-		await expect(
-			page.getByText('A salvage crew follows a quiet signal beyond the mapped edge of space.')
-		).toHaveCount(0);
+		const description = page.getByText(
+			'A salvage crew follows a quiet signal beyond the mapped edge of space.'
+		);
+		await expect(description).toHaveCount(1);
+		await expect(description).not.toBeVisible();
 		const hero = page.getByRole('region', { name: 'Nebula Run' });
 		const play = hero.getByRole('link', { name: 'Play' });
+		const reveal = hero.locator('[data-slot="hero-reveal"]');
 		await expect
-			.poll(() =>
-				play.evaluate((element) => getComputedStyle(element.parentElement!.parentElement!).opacity)
-			)
+			.poll(() => reveal.evaluate((element) => getComputedStyle(element).opacity))
 			.toBe('0');
-		const hiddenActionsHeight = await play.evaluate(
-			(element) => element.parentElement!.parentElement!.getBoundingClientRect().height
+		const hiddenActionsHeight = await reveal.evaluate(
+			(element) => element.getBoundingClientRect().height
 		);
 		expect(hiddenActionsHeight).toBe(0);
 		await page.getByRole('region', { name: 'Featured media' }).hover();
 		await expect
-			.poll(() =>
-				play.evaluate((element) => getComputedStyle(element.parentElement!.parentElement!).opacity)
-			)
+			.poll(() => reveal.evaluate((element) => getComputedStyle(element).opacity))
 			.toBe('1');
 		await expect(play).toBeVisible();
+		await expect(description).toBeVisible();
 		await expect(hero.getByRole('link', { name: 'Details' })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Continue watching' })).toBeVisible();
 		await expect(page.getByText('The Arrival')).toBeVisible();
@@ -131,6 +131,18 @@ test.describe('authenticated media shell', () => {
 			.poll(() => next.evaluate((element) => getComputedStyle(element).opacity))
 			.toBe('1');
 		await next.click();
+		await expect(page.getByRole('heading', { name: 'Quiet Harbor' })).toBeVisible();
+	});
+
+	test('holds an image-only hero for the full rotation interval', async ({ page }) => {
+		await page.clock.install();
+		await mockAuthenticatedApp(page, { homeSectionsAvailable: true });
+		await page.goto('/home');
+
+		await expect(page.getByRole('heading', { name: 'Signal Fire' })).toBeVisible();
+		await page.clock.fastForward(9_000);
+		await expect(page.getByRole('heading', { name: 'Signal Fire' })).toBeVisible();
+		await page.clock.fastForward(1_100);
 		await expect(page.getByRole('heading', { name: 'Quiet Harbor' })).toBeVisible();
 	});
 

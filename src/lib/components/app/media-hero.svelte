@@ -63,6 +63,7 @@
 			autoplay
 			muted
 			playsinline
+			loop
 			onplaying={() => (trailerPlaying = true)}
 			onpause={() => (trailerPlaying = false)}
 			ontimeupdate={(event) => onTrailerProgress?.(event.currentTarget.currentTime)}
@@ -115,26 +116,27 @@
 				{#if tagline}
 					<p class="line-clamp-2 text-lg text-muted-foreground italic">{tagline}</p>
 				{/if}
-				{#if description}
-					<p
-						class="line-clamp-3 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base"
-					>
-						{description}
-					</p>
-				{/if}
 			</div>
-			{#if actions}
+			{#if description || actions}
 				<div
+					data-slot="hero-reveal"
 					class={cn(
 						'mt-4 grid grid-rows-[1fr] opacity-100 transition-[grid-template-rows,margin,opacity,transform] duration-200',
 						actionsOnHover &&
 							'md:mt-0 md:translate-y-1 md:grid-rows-[0fr] md:opacity-0 md:group-focus-within/carousel:mt-4 md:group-focus-within/carousel:translate-y-0 md:group-focus-within/carousel:grid-rows-[1fr] md:group-focus-within/carousel:opacity-100 md:group-hover/carousel:mt-4 md:group-hover/carousel:translate-y-0 md:group-hover/carousel:grid-rows-[1fr] md:group-hover/carousel:opacity-100'
 					)}
 				>
-					<div
-						class="pointer-events-auto flex min-h-0 flex-wrap items-center gap-2 overflow-hidden"
-					>
-						{@render actions()}
+					<div class="pointer-events-auto flex min-h-0 flex-col items-start gap-4 overflow-hidden">
+						{#if description}
+							<p
+								class="line-clamp-3 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base"
+							>
+								{description}
+							</p>
+						{/if}
+						{#if actions}
+							<div class="flex flex-wrap items-center gap-2">{@render actions()}</div>
+						{/if}
 					</div>
 				</div>
 			{/if}

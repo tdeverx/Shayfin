@@ -155,9 +155,34 @@
 <svelte:head><title>{item?.Name ?? 'Details'} · Shayfin</title></svelte:head>
 
 {#if loading}
-	<div class="space-y-6">
-		<Skeleton class="h-[28rem] w-full rounded-4xl" />
-		<Skeleton class="h-8 w-64" />
+	<div class="flex flex-col gap-8">
+		<div
+			class="relative left-1/2 -mt-20 h-[clamp(28rem,62svh,40rem)] w-[100dvw] -translate-x-1/2 overflow-hidden bg-background"
+		>
+			<Skeleton class="absolute inset-0 size-full rounded-none" />
+			<div
+				class="absolute inset-x-0 bottom-0 h-4/5 bg-gradient-to-t from-background via-background/60 to-transparent"
+			></div>
+			<div
+				class="relative mx-auto flex size-full max-w-[110rem] items-end px-4 pt-28 pb-8 sm:px-6 sm:pb-10 lg:px-8"
+			>
+				<div class="flex w-full max-w-2xl flex-col gap-4">
+					<Skeleton class="h-20 w-72 max-w-[75vw]" />
+					<div class="flex gap-2">
+						<Skeleton class="h-6 w-16" /><Skeleton class="h-6 w-14" /><Skeleton class="h-6 w-12" />
+					</div>
+					<Skeleton class="h-4 w-full max-w-xl" />
+					<Skeleton class="h-4 w-4/5 max-w-lg" />
+					<div class="flex gap-2">
+						<Skeleton class="h-9 w-24" /><Skeleton class="h-9 w-28" />
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="flex flex-col gap-4">
+			<Skeleton class="h-8 w-40" />
+			<Skeleton class="h-28 w-full" />
+		</div>
 	</div>
 {:else if error || !item}
 	<Empty.Root class="min-h-[24rem] border border-border">

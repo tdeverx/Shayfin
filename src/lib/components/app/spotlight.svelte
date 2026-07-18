@@ -51,6 +51,7 @@
 	backdropUrl={item.backdropUrl ?? item.imageUrl}
 	logoUrl={item.logoUrl}
 	tagline={item.tagline}
+	description={item.overview}
 	headingId="spotlight-title"
 	{trailer}
 	{showTrailer}

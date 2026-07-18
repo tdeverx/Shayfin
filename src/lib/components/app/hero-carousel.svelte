@@ -27,6 +27,9 @@
 	let showTrailer = $state(false);
 	let trailerUnavailable = $state(false);
 	let advanceDue = $state(false);
+	let advanceRequested = $state(false);
+	let trailerWatchedSeconds = $state(0);
+	let lastTrailerTime = $state(0);
 	let slideStartedAt = $state(0);
 	let activeId = $state('');
 	let current = $derived(items[index] ?? items[0]);
@@ -46,13 +49,17 @@
 	}
 
 	function requestAdvance() {
-		if (items.length <= 1) return;
+		if (items.length <= 1 || advanceRequested) return;
+		advanceRequested = true;
 		if (paused) advanceDue = true;
 		else select(index + 1);
 	}
 
 	function trailerProgress(seconds: number) {
-		if (seconds >= TRAILER_ROTATION_SECONDS) requestAdvance();
+		const delta = seconds >= lastTrailerTime ? seconds - lastTrailerTime : seconds;
+		lastTrailerTime = seconds;
+		trailerWatchedSeconds += Math.max(0, delta);
+		if (trailerWatchedSeconds >= TRAILER_ROTATION_SECONDS) requestAdvance();
 	}
 
 	function trailerFailed() {
@@ -73,12 +80,21 @@
 		showTrailer = false;
 		trailerUnavailable = false;
 		advanceDue = false;
+		advanceRequested = false;
+		trailerWatchedSeconds = 0;
+		lastTrailerTime = 0;
 	});
 
 	$effect(() => {
 		const id = current?.id;
 		const trailerUrl = effectiveTrailer?.url;
-		if (!id || items.length <= 1 || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+		if (
+			!id ||
+			!slideStartedAt ||
+			items.length <= 1 ||
+			matchMedia('(prefers-reduced-motion: reduce)').matches
+		)
+			return;
 		const elapsed = Math.max(0, Date.now() - slideStartedAt);
 		if (trailerUrl) {
 			const timer = setTimeout(() => (showTrailer = true), Math.max(0, IMAGE_LEAD_MS - elapsed));
@@ -119,7 +135,6 @@
 					{showTrailer}
 					{paused}
 					onTrailerProgress={trailerProgress}
-					onTrailerEnded={requestAdvance}
 					onTrailerUnavailable={trailerFailed}
 				/>
 			{/key}
