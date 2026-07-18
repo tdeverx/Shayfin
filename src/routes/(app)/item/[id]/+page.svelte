@@ -21,6 +21,7 @@
 		imageForItem,
 		itemProgress,
 		itemSecondary,
+		logoForItem,
 		posterForItem
 	} from '$lib/app/media';
 	import { session } from '$lib/app/session.svelte';
@@ -31,6 +32,7 @@
 	import * as Empty from '$lib/components/ui/empty';
 	import { Separator } from '$lib/components/ui/separator';
 	import { Skeleton } from '$lib/components/ui/skeleton';
+	import MediaHero from '$lib/components/app/media-hero.svelte';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import { toast } from 'svelte-sonner';
 
@@ -50,6 +52,7 @@
 		return backdropForItem(api, item, 1800);
 	});
 	let posterUrl = $derived(session.api && item ? posterForItem(session.api, item, 560) : undefined);
+	let logoUrl = $derived(session.api && item ? logoForItem(session.api, item, 720) : undefined);
 	let episodes = $derived(series?.episodesBySeason[selectedSeason] ?? []);
 	let playable = $derived.by(() => {
 		if (!item) return null;
@@ -172,66 +175,49 @@
 		<Empty.Content><Button href={resolve('/home')}>Back home</Button></Empty.Content>
 	</Empty.Root>
 {:else}
-	<article class="space-y-8">
-		<Button variant="ghost" size="sm" onclick={goBack} aria-label="Back to previous page">
-			<ArrowLeftIcon data-icon="inline-start" />
-			Back
-		</Button>
-		<section
-			class="relative isolate min-h-[28rem] overflow-hidden rounded-4xl border border-border bg-card"
-		>
-			{#if backdropUrl}<img
-					src={backdropUrl}
-					alt=""
-					class="absolute inset-0 -z-20 size-full object-cover"
-				/>{/if}
-			<div
-				class="absolute inset-0 -z-10 bg-gradient-to-t from-background via-background/75 to-black/15"
-			></div>
-			<div class="flex min-h-[28rem] items-end gap-6 p-5 sm:p-8">
-				{#if posterUrl}
-					<img
-						src={posterUrl}
-						alt=""
-						class="hidden aspect-[2/3] w-44 rounded-4xl border border-border object-cover shadow-lg sm:block"
-					/>
-				{/if}
-				<div class="max-w-3xl space-y-4">
-					<div class="flex flex-wrap items-center gap-2">
-						<Badge>{item.Type ?? 'Video'}</Badge>
-						{#if item.ProductionYear}<Badge variant="secondary">{item.ProductionYear}</Badge>{/if}
-						{#if item.OfficialRating}<span class="text-sm text-muted-foreground"
-								>{item.OfficialRating}</span
-							>{/if}
-						{#if formatRuntime(item.RunTimeTicks)}<span class="text-sm text-muted-foreground"
-								>{formatRuntime(item.RunTimeTicks)}</span
-							>{/if}
-					</div>
-					<h1 class="text-3xl font-semibold tracking-tight sm:text-5xl">{item.Name}</h1>
-					{#if item.Taglines?.[0]}<p class="text-lg text-muted-foreground italic">
-							{item.Taglines[0]}
-						</p>{/if}
-					{#if item.Overview}<p
-							class="line-clamp-4 max-w-2xl leading-relaxed text-muted-foreground"
-						>
-							{item.Overview}
-						</p>{/if}
-					<div class="flex flex-wrap gap-2">
-						{#if playable?.Id}
-							<Button href={resolve('/(app)/watch/[id]', { id: playable.Id })}>
-								{#if (playable.UserData?.PlaybackPositionTicks ?? 0) > 0}<RotateCcwIcon
-										data-icon="inline-start"
-									/>Resume{:else}<PlayIcon data-icon="inline-start" />Play{/if}
-							</Button>
-						{/if}
-						<Button variant={favorite ? 'secondary' : 'outline'} onclick={toggleFavorite}>
-							<HeartIcon data-icon="inline-start" />
-							{favorite ? 'Favorited' : 'Favorite'}
-						</Button>
-					</div>
-				</div>
-			</div>
-		</section>
+	<article class="flex flex-col gap-8">
+		{#snippet topAction()}
+			<Button variant="secondary" size="sm" onclick={goBack} aria-label="Back to previous page">
+				<ArrowLeftIcon data-icon="inline-start" />
+				Back
+			</Button>
+		{/snippet}
+
+		{#snippet metadata()}
+			<Badge>{item?.Type ?? 'Video'}</Badge>
+			{#if item?.ProductionYear}<Badge variant="secondary">{item.ProductionYear}</Badge>{/if}
+			{#if item?.OfficialRating}<span>{item.OfficialRating}</span>{/if}
+			{#if formatRuntime(item?.RunTimeTicks)}<span>{formatRuntime(item?.RunTimeTicks)}</span>{/if}
+		{/snippet}
+
+		{#snippet actions()}
+			{#if playable?.Id}
+				<Button href={resolve('/(app)/watch/[id]', { id: playable.Id })}>
+					{#if (playable.UserData?.PlaybackPositionTicks ?? 0) > 0}
+						<RotateCcwIcon data-icon="inline-start" />Resume
+					{:else}
+						<PlayIcon data-icon="inline-start" />Play
+					{/if}
+				</Button>
+			{/if}
+			<Button variant="secondary" onclick={toggleFavorite}>
+				<HeartIcon data-icon="inline-start" />
+				{favorite ? 'Favorited' : 'Favorite'}
+			</Button>
+		{/snippet}
+
+		<MediaHero
+			title={item.Name ?? 'Untitled'}
+			{backdropUrl}
+			{logoUrl}
+			description={item.Overview}
+			tagline={item.Taglines?.[0]}
+			{posterUrl}
+			headingId="item-title"
+			{metadata}
+			{actions}
+			{topAction}
+		/>
 
 		{#if series && series.seasons.length > 0}
 			<section class="space-y-4" aria-labelledby="episodes-heading">

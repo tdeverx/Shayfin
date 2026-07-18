@@ -5,6 +5,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import type { SpotlightModel } from '$lib/app/models';
 	import type { HeroTrailer } from '$lib/jellyfin';
+	import MediaHero from './media-hero.svelte';
 
 	let {
 		item,
@@ -23,78 +24,40 @@
 		onTrailerEnded?: () => void;
 		onTrailerUnavailable?: () => void;
 	} = $props();
-
-	let trailerFailed = $state(false);
-	let trailerVisible = $state(false);
-	let video = $state<HTMLVideoElement | null>(null);
-
-	$effect(() => {
-		if (!video) return;
-		if (paused) video.pause();
-		else if (showTrailer) void video.play().catch(() => undefined);
-	});
 </script>
 
-<section
-	aria-labelledby="spotlight-title"
-	class="relative isolate min-h-[20rem] overflow-hidden rounded-4xl border border-border bg-card sm:min-h-[23rem]"
->
-	{#if item.backdropUrl ?? item.imageUrl}
-		<img
-			src={item.backdropUrl ?? item.imageUrl}
-			alt=""
-			class="absolute inset-0 -z-20 size-full object-cover"
-		/>
+{#snippet metadata()}
+	{#if item.year}<Badge variant="secondary">{item.year}</Badge>{/if}
+	{#if item.rating}<span>{item.rating}</span>{/if}
+	{#if item.runtime}<span>{item.runtime}</span>{/if}
+	{#if item.secondary}<span>{item.secondary}</span>{/if}
+{/snippet}
+
+{#snippet actions()}
+	{#if item.kind !== 'series'}
+		<Button href={`/watch/${item.id}`}>
+			<PlayIcon data-icon="inline-start" />
+			Play
+		</Button>
 	{/if}
-	{#if trailer && showTrailer && !trailerFailed}
-		<video
-			bind:this={video}
-			src={trailer.url}
-			poster={item.backdropUrl ?? item.imageUrl}
-			autoplay
-			muted
-			playsinline
-			onplaying={() => (trailerVisible = true)}
-			ontimeupdate={(event) => onTrailerProgress?.(event.currentTarget.currentTime)}
-			onended={onTrailerEnded}
-			onerror={() => {
-				trailerFailed = true;
-				onTrailerUnavailable?.();
-			}}
-			class="absolute inset-0 z-[-15] size-full object-cover opacity-0 transition-opacity duration-700 motion-reduce:hidden {trailerVisible
-				? 'opacity-100'
-				: ''}"
-		></video>
-	{/if}
-	<div class="absolute inset-0 -z-10 bg-gradient-to-r from-black via-black/65 to-transparent"></div>
-	<div
-		class="flex min-h-[20rem] max-w-2xl flex-col justify-end gap-4 p-6 text-white sm:min-h-[23rem] sm:p-8"
-	>
-		<div class="flex flex-wrap items-center gap-2 text-sm text-white/75">
-			{#if item.year}<Badge variant="secondary">{item.year}</Badge>{/if}
-			{#if item.rating}<span>{item.rating}</span>{/if}
-			{#if item.runtime}<span>{item.runtime}</span>{/if}
-			{#if item.secondary}<span>{item.secondary}</span>{/if}
-		</div>
-		<h1 id="spotlight-title" class="text-3xl font-semibold tracking-tight sm:text-5xl">
-			{item.title}
-		</h1>
-		{#if item.overview}<p class="max-w-xl text-sm leading-relaxed text-white/75 sm:text-base">
-				{item.overview}
-			</p>{/if}
-		<div class="flex flex-wrap items-center gap-2">
-			{#if item.kind !== 'series'}<Button href={`/watch/${item.id}`}>
-					<PlayIcon data-icon="inline-start" />
-					Play
-				</Button>{/if}
-			<Button
-				variant="outline"
-				href={item.href}
-				class="border-white/30 bg-black/20 text-white hover:bg-black/40 hover:text-white"
-			>
-				<InfoIcon data-icon="inline-start" />
-				Details
-			</Button>
-		</div>
-	</div>
-</section>
+	<Button variant="secondary" href={item.href}>
+		<InfoIcon data-icon="inline-start" />
+		Details
+	</Button>
+{/snippet}
+
+<MediaHero
+	title={item.title}
+	backdropUrl={item.backdropUrl ?? item.imageUrl}
+	logoUrl={item.logoUrl}
+	description={item.overview}
+	headingId="spotlight-title"
+	{trailer}
+	{showTrailer}
+	{paused}
+	{metadata}
+	{actions}
+	{onTrailerProgress}
+	{onTrailerEnded}
+	{onTrailerUnavailable}
+/>

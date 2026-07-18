@@ -89,10 +89,29 @@ export function toSpotlight(api: Api, item: BaseItemDto): SpotlightModel | null 
 	return {
 		...card,
 		backdropUrl: backdropForItem(api, item, 1600) ?? card.imageUrl,
+		logoUrl: logoForItem(api, item, 720),
 		overview: item.Overview ?? undefined,
 		rating: item.OfficialRating ?? undefined,
 		runtime: formatRuntime(item.RunTimeTicks)
 	};
+}
+
+export function logoForItem(api: Api, item: BaseItemDto, width = 720): string | undefined {
+	if (item.Id && item.ImageTags?.Logo) {
+		return itemImageUrl(api, item.Id, {
+			type: 'Logo',
+			tag: item.ImageTags.Logo,
+			maxWidth: width
+		});
+	}
+	if (item.ParentLogoItemId) {
+		return itemImageUrl(api, item.ParentLogoItemId, {
+			type: 'Logo',
+			tag: item.ParentLogoImageTag,
+			maxWidth: width
+		});
+	}
+	return undefined;
 }
 
 export function imageForItem(api: Api, item: BaseItemDto, width = 480): string | undefined {

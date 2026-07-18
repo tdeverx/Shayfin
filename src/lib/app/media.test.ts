@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Api } from '@jellyfin/sdk';
 import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base-item-dto.js';
-import { backdropForItem, posterForItem, toMediaCard } from './media.js';
+import { backdropForItem, logoForItem, posterForItem, toMediaCard, toSpotlight } from './media.js';
 
 const api = {
 	basePath: 'http://jellyfin.test',
@@ -39,5 +39,35 @@ describe('episode artwork roles', () => {
 		const portrait = new URL(toMediaCard(api, episode, 'portrait')!.imageUrl!);
 
 		expect(portrait.pathname).toBe('/Items/season-1/Images/Primary');
+	});
+});
+
+describe('logo artwork', () => {
+	it('uses an item logo in spotlight and detail artwork', () => {
+		const item: BaseItemDto = {
+			Id: 'movie-1',
+			Name: 'Logo Movie',
+			Type: 'Movie',
+			ImageTags: { Logo: 'logo-tag' }
+		};
+		const logo = new URL(logoForItem(api, item, 720)!);
+
+		expect(logo.pathname).toBe('/Items/movie-1/Images/Logo');
+		expect(logo.searchParams.get('tag')).toBe('logo-tag');
+		expect(logo.searchParams.get('maxWidth')).toBe('720');
+		expect(toSpotlight(api, item)?.logoUrl).toBe(logo.toString());
+	});
+
+	it('falls back to a parent logo for episodes', () => {
+		const logo = new URL(
+			logoForItem(api, {
+				...episode,
+				ParentLogoItemId: 'series-1',
+				ParentLogoImageTag: 'series-logo-tag'
+			})!
+		);
+
+		expect(logo.pathname).toBe('/Items/series-1/Images/Logo');
+		expect(logo.searchParams.get('tag')).toBe('series-logo-tag');
 	});
 });
