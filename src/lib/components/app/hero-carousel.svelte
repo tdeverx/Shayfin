@@ -1,7 +1,10 @@
 <script lang="ts">
+	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import { Button } from '$lib/components/ui/button';
 	import type { SpotlightModel } from '$lib/app/models';
 	import type { HeroTrailer } from '$lib/jellyfin';
+	import { cn } from '$lib/utils';
 	import Spotlight from './spotlight.svelte';
 
 	const IMAGE_LEAD_MS = 5_000;
@@ -20,6 +23,7 @@
 
 	let index = $state(0);
 	let paused = $state(false);
+	let controlsVisible = $state(false);
 	let showTrailer = $state(false);
 	let trailerUnavailable = $state(false);
 	let advanceDue = $state(false);
@@ -87,39 +91,69 @@
 
 {#if current}
 	<div
-		class="relative"
+		class="group/carousel relative isolate"
 		role="region"
 		aria-label="Featured media"
-		onmouseenter={() => setPaused(true)}
-		onmouseleave={() => setPaused(false)}
-		onfocusin={() => setPaused(true)}
-		onfocusout={() => setPaused(false)}
+		onmouseenter={() => {
+			setPaused(true);
+			controlsVisible = true;
+		}}
+		onmouseleave={() => {
+			setPaused(false);
+			controlsVisible = false;
+		}}
+		onfocusin={() => {
+			setPaused(true);
+			controlsVisible = true;
+		}}
+		onfocusout={() => {
+			setPaused(false);
+			controlsVisible = false;
+		}}
 	>
-		{#key `${current.id}-${trailer?.url ?? ''}`}
-			<Spotlight
-				item={current}
-				trailer={effectiveTrailer}
-				{showTrailer}
-				{paused}
-				onTrailerProgress={trailerProgress}
-				onTrailerEnded={requestAdvance}
-				onTrailerUnavailable={trailerFailed}
-			/>
-		{/key}
+		<div class="pointer-events-none relative z-0">
+			{#key `${current.id}-${trailer?.url ?? ''}`}
+				<Spotlight
+					item={current}
+					trailer={effectiveTrailer}
+					{showTrailer}
+					{paused}
+					onTrailerProgress={trailerProgress}
+					onTrailerEnded={requestAdvance}
+					onTrailerUnavailable={trailerFailed}
+				/>
+			{/key}
+		</div>
 		{#if items.length > 1}
-			<div
-				class="absolute right-4 bottom-5 flex max-w-[calc(100vw-2rem)] items-center gap-1.5 overflow-x-auto sm:right-6 lg:right-8"
-				aria-label={`Featured item ${index + 1} of ${items.length}`}
-			>
-				{#each items as item, itemIndex (item.id)}
+			<div class="pointer-events-none absolute inset-0 z-20">
+				<div class="absolute top-1/2 left-4 -translate-y-1/2 sm:left-6 lg:left-8">
 					<Button
-						variant={itemIndex === index ? 'default' : 'secondary'}
-						size="icon-xs"
-						class="size-2 rounded-full p-0"
-						aria-label={`Show ${item.title}`}
-						onclick={() => select(itemIndex)}
-					></Button>
-				{/each}
+						variant="secondary"
+						size="icon-lg"
+						class={cn(
+							'pointer-events-auto rounded-full backdrop-blur transition-opacity',
+							!controlsVisible && 'pointer-events-none opacity-0'
+						)}
+						aria-label="Previous featured item"
+						onclick={() => select(index - 1)}
+					>
+						<ChevronLeftIcon />
+					</Button>
+				</div>
+				<div class="absolute top-1/2 right-4 -translate-y-1/2 sm:right-6 lg:right-8">
+					<Button
+						variant="secondary"
+						size="icon-lg"
+						class={cn(
+							'pointer-events-auto rounded-full backdrop-blur transition-opacity',
+							!controlsVisible && 'pointer-events-none opacity-0'
+						)}
+						aria-label="Next featured item"
+						onclick={() => select(index + 1)}
+					>
+						<ChevronRightIcon />
+					</Button>
+				</div>
 			</div>
 		{/if}
 	</div>

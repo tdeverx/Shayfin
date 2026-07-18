@@ -11,17 +11,16 @@
 	);
 </script>
 
-<Card.Root class="relative isolate overflow-hidden border-border bg-card">
+<Card.Root
+	class="relative isolate flex min-h-[28rem] flex-col justify-end overflow-hidden border-border bg-card"
+>
 	{#if backdrop}<img
 			src={backdrop}
 			alt=""
 			class="absolute inset-0 -z-20 size-full object-cover"
 		/>{/if}
-	<div
-		class="absolute inset-0 -z-10 bg-gradient-to-r from-background via-background/90 to-background/40"
-	></div>
-	<Card.Header class="pt-7 sm:px-7">
-		<Card.Description>Featured collection</Card.Description>
+	<div class="absolute inset-0 -z-10 bg-gradient-to-t from-card via-card/85 to-transparent"></div>
+	<Card.Header class="relative mt-auto pt-36 sm:px-7 sm:pt-44">
 		<Card.Title class="text-2xl tracking-tight sm:text-3xl">{section.title}</Card.Title>
 		{#if section.href}<Card.Action
 				><Button variant="secondary" size="sm" href={section.href}
@@ -29,7 +28,7 @@
 				></Card.Action
 			>{/if}
 	</Card.Header>
-	<Card.Content class="pb-7 sm:px-7">
+	<Card.Content class="relative pb-7 sm:px-7">
 		<div
 			class="grid snap-x [scrollbar-width:none] auto-cols-[minmax(8.5rem,11rem)] grid-flow-col gap-3 overflow-x-auto overscroll-x-contain"
 		>

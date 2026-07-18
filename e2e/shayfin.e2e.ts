@@ -83,11 +83,19 @@ test.describe('authenticated media shell', () => {
 		const hero = page.getByRole('region', { name: 'Nebula Run' });
 		const play = hero.getByRole('link', { name: 'Play' });
 		await expect
-			.poll(() => play.evaluate((element) => getComputedStyle(element.parentElement!).opacity))
+			.poll(() =>
+				play.evaluate((element) => getComputedStyle(element.parentElement!.parentElement!).opacity)
+			)
 			.toBe('0');
-		await hero.hover();
+		const hiddenActionsHeight = await play.evaluate(
+			(element) => element.parentElement!.parentElement!.getBoundingClientRect().height
+		);
+		expect(hiddenActionsHeight).toBe(0);
+		await page.getByRole('region', { name: 'Featured media' }).hover();
 		await expect
-			.poll(() => play.evaluate((element) => getComputedStyle(element.parentElement!).opacity))
+			.poll(() =>
+				play.evaluate((element) => getComputedStyle(element.parentElement!.parentElement!).opacity)
+			)
 			.toBe('1');
 		await expect(play).toBeVisible();
 		await expect(hero.getByRole('link', { name: 'Details' })).toBeVisible();
@@ -108,9 +116,21 @@ test.describe('authenticated media shell', () => {
 		await expect(page.getByRole('heading', { name: 'Signal Fire' })).toBeVisible();
 		await expect(page.getByRole('region', { name: 'Continue Watching / Next Up' })).toBeVisible();
 		await expect(page.getByRole('region', { name: 'Staff Picks' })).toHaveCount(0);
-		await expect(page.getByRole('button', { name: 'Next featured item' })).toHaveCount(0);
-		await expect(page.getByRole('button', { name: 'Previous featured item' })).toHaveCount(0);
-		await page.getByRole('button', { name: 'Show Quiet Harbor' }).click();
+		const next = page.getByRole('button', { name: 'Next featured item', includeHidden: true });
+		const previous = page.getByRole('button', {
+			name: 'Previous featured item',
+			includeHidden: true
+		});
+		await expect(next).toHaveCount(1);
+		await expect(previous).toHaveCount(1);
+		await expect
+			.poll(() => next.evaluate((element) => getComputedStyle(element).opacity))
+			.toBe('0');
+		await page.getByRole('region', { name: 'Featured media' }).hover();
+		await expect
+			.poll(() => next.evaluate((element) => getComputedStyle(element).opacity))
+			.toBe('1');
+		await next.click();
 		await expect(page.getByRole('heading', { name: 'Quiet Harbor' })).toBeVisible();
 	});
 

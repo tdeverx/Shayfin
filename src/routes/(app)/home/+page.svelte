@@ -181,10 +181,28 @@
 <svelte:head><title>Home · Shayfin</title></svelte:head>
 
 {#if loading}
-	<div class="space-y-8">
-		<Skeleton class="h-[23rem] w-full rounded-4xl" />
+	<div class="flex flex-col gap-9">
+		<div
+			class="relative left-1/2 -mt-20 h-[clamp(28rem,62svh,40rem)] w-[100dvw] -translate-x-1/2 overflow-hidden bg-background"
+		>
+			<Skeleton class="absolute inset-0 size-full rounded-none" />
+			<div
+				class="absolute inset-x-0 bottom-0 h-4/5 bg-gradient-to-t from-background via-background/60 to-transparent"
+			></div>
+			<div
+				class="relative mx-auto flex size-full max-w-[110rem] items-end px-4 pt-28 pb-8 sm:px-6 sm:pb-10 lg:px-8"
+			>
+				<div class="flex w-full max-w-xl flex-col gap-4">
+					<Skeleton class="h-20 w-72 max-w-[75vw]" />
+					<div class="flex gap-2">
+						<Skeleton class="h-6 w-14" /><Skeleton class="h-6 w-12" /><Skeleton class="h-6 w-16" />
+					</div>
+					<Skeleton class="h-5 w-80 max-w-[80vw]" />
+				</div>
+			</div>
+		</div>
 		{#each [0, 1] as row (row)}
-			<div class="space-y-3">
+			<div class="flex flex-col gap-3">
 				<Skeleton class="h-6 w-48" />
 				<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
 					{#each [0, 1, 2, 3] as card (card)}<Skeleton class="aspect-video rounded-4xl" />{/each}

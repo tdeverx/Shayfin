@@ -39,7 +39,6 @@
 
 	let trailerFailed = $state(false);
 	let trailerPlaying = $state(false);
-	let actionsHovered = $state(false);
 	let video = $state<HTMLVideoElement | null>(null);
 
 	$effect(() => {
@@ -51,9 +50,7 @@
 
 <section
 	aria-labelledby={headingId}
-	onpointerenter={() => (actionsHovered = true)}
-	onpointerleave={() => (actionsHovered = false)}
-	class="group relative left-1/2 -mt-20 h-[clamp(28rem,62svh,40rem)] w-[100dvw] -translate-x-1/2 overflow-hidden bg-background"
+	class="pointer-events-none relative left-1/2 -mt-20 h-[clamp(28rem,62svh,40rem)] w-[100dvw] -translate-x-1/2 overflow-hidden bg-background"
 >
 	{#if backdropUrl}
 		<img src={backdropUrl} alt="" class="absolute inset-0 size-full object-cover" />
@@ -89,47 +86,56 @@
 	></div>
 
 	<div
-		class={cn(
-			'relative mx-auto flex size-full max-w-[110rem] items-end px-4 pt-28 pb-8 text-foreground transition-opacity duration-700 sm:px-6 sm:pb-10 lg:px-8',
-			trailerPlaying && 'opacity-50'
-		)}
+		class="pointer-events-none relative mx-auto flex size-full max-w-[110rem] items-end px-4 pt-28 pb-8 text-foreground sm:px-6 sm:pb-10 lg:px-8"
 	>
-		<div class="flex max-w-3xl min-w-0 flex-col gap-4">
-			{#if logoUrl}
-				<img
-					src={logoUrl}
-					alt=""
-					class="max-h-24 max-w-[min(32rem,82vw)] object-contain object-left drop-shadow-lg sm:max-h-32"
-				/>
-				<h1 id={headingId} class="sr-only">{title}</h1>
-			{:else}
-				<h1 id={headingId} class="text-3xl font-semibold tracking-tight sm:text-5xl">{title}</h1>
-			{/if}
-			{#if metadata}
-				<div class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-					{@render metadata()}
-				</div>
-			{/if}
-			{#if tagline}
-				<p class="line-clamp-2 text-lg text-muted-foreground italic">{tagline}</p>
-			{/if}
-			{#if description}
-				<p
-					class="line-clamp-3 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base"
-				>
-					{description}
-				</p>
-			{/if}
+		<div
+			class={cn(
+				'flex max-w-3xl min-w-0 origin-bottom-left flex-col transition-[opacity,transform] duration-700',
+				trailerPlaying && 'scale-[0.72] opacity-50'
+			)}
+		>
+			<div class="flex flex-col gap-4">
+				{#if logoUrl}
+					<img
+						src={logoUrl}
+						alt=""
+						class="max-h-24 max-w-[min(32rem,82vw)] object-contain object-left drop-shadow-lg sm:max-h-32"
+					/>
+					<h1 id={headingId} class="sr-only">{title}</h1>
+				{:else}
+					<h1 id={headingId} class="text-3xl font-semibold tracking-tight sm:text-5xl">
+						{title}
+					</h1>
+				{/if}
+				{#if metadata}
+					<div class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+						{@render metadata()}
+					</div>
+				{/if}
+				{#if tagline}
+					<p class="line-clamp-2 text-lg text-muted-foreground italic">{tagline}</p>
+				{/if}
+				{#if description}
+					<p
+						class="line-clamp-3 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base"
+					>
+						{description}
+					</p>
+				{/if}
+			</div>
 			{#if actions}
 				<div
 					class={cn(
-						'flex flex-wrap items-center gap-2 transition-[opacity,transform] duration-200',
+						'mt-4 grid grid-rows-[1fr] opacity-100 transition-[grid-template-rows,margin,opacity,transform] duration-200',
 						actionsOnHover &&
-							!actionsHovered &&
-							'md:translate-y-1 md:opacity-0 md:group-focus-within:translate-y-0 md:group-focus-within:opacity-100'
+							'md:mt-0 md:translate-y-1 md:grid-rows-[0fr] md:opacity-0 md:group-focus-within/carousel:mt-4 md:group-focus-within/carousel:translate-y-0 md:group-focus-within/carousel:grid-rows-[1fr] md:group-focus-within/carousel:opacity-100 md:group-hover/carousel:mt-4 md:group-hover/carousel:translate-y-0 md:group-hover/carousel:grid-rows-[1fr] md:group-hover/carousel:opacity-100'
 					)}
 				>
-					{@render actions()}
+					<div
+						class="pointer-events-auto flex min-h-0 flex-wrap items-center gap-2 overflow-hidden"
+					>
+						{@render actions()}
+					</div>
 				</div>
 			{/if}
 		</div>

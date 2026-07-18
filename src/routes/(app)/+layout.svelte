@@ -225,13 +225,27 @@
 		headers={session.authorizationHeaders}
 	/>
 {:else}
-	<div class="mx-auto max-w-7xl space-y-6 px-6 py-20">
-		<Skeleton class="h-80 w-full rounded-xl" />
-		<Skeleton class="h-6 w-48" />
-		<div class="grid grid-cols-2 gap-4 md:grid-cols-4">
-			{#each [0, 1, 2, 3] as skeleton (skeleton)}<Skeleton
-					class="aspect-video rounded-4xl"
-				/>{/each}
+	<div class="flex min-h-screen flex-col gap-8 overflow-x-hidden">
+		<div class="relative h-[clamp(28rem,62svh,40rem)] w-[100dvw] overflow-hidden bg-background">
+			<Skeleton class="absolute inset-0 size-full rounded-none" />
+			<div
+				class="absolute inset-x-0 bottom-0 h-4/5 bg-gradient-to-t from-background via-background/60 to-transparent"
+			></div>
+			<div class="relative flex size-full items-end px-6 pb-10">
+				<div class="flex w-full max-w-xl flex-col gap-4">
+					<Skeleton class="h-20 w-72 max-w-[75vw]" />
+					<Skeleton class="h-6 w-48" />
+					<Skeleton class="h-5 w-80 max-w-[80vw]" />
+				</div>
+			</div>
+		</div>
+		<div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 pb-12">
+			<Skeleton class="h-6 w-48" />
+			<div class="grid grid-cols-2 gap-4 md:grid-cols-4">
+				{#each [0, 1, 2, 3] as skeleton (skeleton)}<Skeleton
+						class="aspect-video rounded-4xl"
+					/>{/each}
+			</div>
 		</div>
 	</div>
 {/if}
