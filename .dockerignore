@@ -1,0 +1,14 @@
+.git
+.gitignore
+.vscode
+.data
+.env
+.env.*
+node_modules
+build
+.svelte-kit
+coverage
+playwright-report
+test-results
+*.log
+.DS_Store
