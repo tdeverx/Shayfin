@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import UserIcon from '@lucide/svelte/icons/user';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
-	import GaugeIcon from '@lucide/svelte/icons/gauge';
+	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import * as Avatar from '$lib/components/ui/avatar';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import type { AppUser } from '$lib/app/models';
@@ -40,7 +40,7 @@
 			</button>
 		{/snippet}
 	</DropdownMenu.Trigger>
-	<DropdownMenu.Content align="end" class="w-52">
+	<DropdownMenu.Content align="start" class="w-52">
 		<DropdownMenu.Label>
 			<span class="block truncate">{user.name}</span>
 			<small class="text-muted-foreground"
@@ -57,16 +57,14 @@
 					</a>
 				{/snippet}
 			</DropdownMenu.Item>
-			{#if user.isAdministrator}
-				<DropdownMenu.Item>
-					{#snippet child({ props })}
-						<a href={resolve('/admin')} {...props}>
-							<GaugeIcon />
-							Admin
-						</a>
-					{/snippet}
-				</DropdownMenu.Item>
-			{/if}
+			<DropdownMenu.Item>
+				{#snippet child({ props })}
+					<a href={resolve('/settings')} {...props}>
+						<SettingsIcon />
+						Settings
+					</a>
+				{/snippet}
+			</DropdownMenu.Item>
 		</DropdownMenu.Group>
 		<DropdownMenu.Separator />
 		<DropdownMenu.Group>

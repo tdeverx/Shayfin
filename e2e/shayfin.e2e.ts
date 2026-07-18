@@ -35,23 +35,27 @@ test.describe('authenticated media shell', () => {
 		await expect(media).toBeVisible();
 		await expect(media.getByRole('radio', { name: 'Home' })).toBeVisible();
 		await expect(media.getByRole('radio', { name: 'Movies' })).toBeVisible();
-		await expect(media.getByRole('radio', { name: 'Series' })).toBeVisible();
+		await expect(media.getByRole('radio', { name: 'Shows' })).toBeVisible();
 		await expect(media.getByRole('radio', { name: 'Music' })).toHaveCount(0);
 		await expect(page.locator('[data-slot="sidebar-wrapper"]')).toHaveCount(0);
 		await expect(page.locator('a[href="/admin"]')).toHaveCount(0);
 	});
 
-	test('adds the admin navigation only for Jellyfin administrators', async ({ page }) => {
+	test('keeps media full-width and reveals admin navigation inside settings', async ({ page }) => {
 		await page.setViewportSize({ width: 1600, height: 1000 });
 		await mockAuthenticatedApp(page, { admin: true });
 		await page.goto('/home');
 
+		await expect(page.locator('[data-slot="sidebar-wrapper"]')).toHaveCount(0);
+		await page.getByRole('button', { name: /Open .* profile menu/ }).click();
+		await page.getByRole('menuitem', { name: 'Settings' }).click();
+		await expect(page).toHaveURL(/\/settings$/);
 		await expect(page.locator('[data-slot="sidebar-wrapper"]')).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Connections' })).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Integrations' })).toBeVisible();
 		await expect(page.getByText('Jellyfin connected')).toBeVisible();
 		await expect(page.getByText('Server 10.11.11')).toBeVisible();
-		const sidebarToggle = page.getByRole('button', { name: 'Toggle admin sidebar' });
+		const sidebarToggle = page.getByRole('button', { name: 'Toggle settings sidebar' });
 		await expect(sidebarToggle).toBeVisible();
 		await sidebarToggle.click();
 		await expect(page.locator('[data-slot="sidebar"][data-state]')).toHaveAttribute(
@@ -108,16 +112,16 @@ test.describe('authenticated media shell', () => {
 		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
 	});
 
-	test('browses the shared series library with series-specific labels', async ({ page }) => {
+	test('browses the shared shows library with show-specific labels', async ({ page }) => {
 		await mockAuthenticatedApp(page);
 		await page.goto('/series');
 
-		await expect(page.getByRole('heading', { name: 'Series' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Shows' })).toBeVisible();
 		await expect(page.getByText('Signal House', { exact: true })).toBeVisible();
 		await expect(page.getByText('1 series')).toBeVisible();
 		await expect(page.getByRole('textbox', { name: 'Search series' })).toHaveAttribute(
 			'placeholder',
-			'Search series or genres'
+			'Search shows or genres'
 		);
 		await page.getByRole('button', { name: 'Sort series' }).click();
 		await expect(page.getByRole('option', { name: 'First aired' })).toBeVisible();
@@ -131,13 +135,13 @@ test.describe('authenticated media shell', () => {
 		await page.keyboard.press('Control+K');
 		const search = page.getByRole('dialog', { name: 'Search Shayfin' });
 		await expect(search).toBeVisible();
-		await search.getByPlaceholder('Search movies and series…').fill('signal');
+		await search.getByPlaceholder('Search movies and shows…').fill('signal');
 
 		await expect(search.getByText('In your library')).toBeVisible();
 		await expect(search.getByText('Signal Fire')).toBeVisible();
 		await expect(search.getByText('Discover & request')).toHaveCount(0);
 
-		await search.getByPlaceholder('Search movies and series…').press('Enter');
+		await search.getByPlaceholder('Search movies and shows…').press('Enter');
 		await expect(page).toHaveURL(/\/item\/movie-latest$/);
 	});
 
@@ -166,7 +170,7 @@ test.describe('authenticated media shell', () => {
 
 		await page.keyboard.press('Control+K');
 		const search = page.getByRole('dialog', { name: 'Search Shayfin' });
-		const input = search.getByPlaceholder('Search movies and series…');
+		const input = search.getByPlaceholder('Search movies and shows…');
 		await input.fill('signal');
 
 		await expect(search.getByText('In your library')).toBeVisible();
@@ -196,7 +200,7 @@ test.describe('authenticated media shell', () => {
 
 		await page.keyboard.press('Control+K');
 		const search = page.getByRole('dialog', { name: 'Search Shayfin' });
-		await search.getByPlaceholder('Search movies and series…').fill('frontier');
+		await search.getByPlaceholder('Search movies and shows…').fill('frontier');
 		await search.getByText('Frontier Echo', { exact: true }).click();
 
 		const request = page.getByRole('dialog', { name: 'Request Frontier Echo' });
@@ -230,7 +234,7 @@ test.describe('authenticated media shell', () => {
 
 		await page.keyboard.press('Control+K');
 		const search = page.getByRole('dialog', { name: 'Search Shayfin' });
-		await search.getByPlaceholder('Search movies and series…').fill('reborn');
+		await search.getByPlaceholder('Search movies and shows…').fill('reborn');
 		await search.getByText('Signal House Reborn', { exact: true }).click();
 
 		const request = page.getByRole('dialog', { name: 'Request Signal House Reborn' });
@@ -449,20 +453,27 @@ test.describe('mobile shell', () => {
 
 		const media = page.getByRole('navigation', { name: 'Media' });
 		const profile = page.getByRole('button', { name: "Open Nora Viewer's profile menu" });
+		const search = page.getByRole('button', { name: 'Search' });
 		await expect(media).toBeVisible();
 		await expect(media.getByRole('radio', { name: 'Home' })).toBeVisible();
-		await expect(media.getByRole('button', { name: 'Search' })).toBeVisible();
+		await expect(search).toBeVisible();
 		await expect(profile).toBeVisible();
 		await expect(media.getByText('Home')).toBeHidden();
 
-		const [mediaBox, profileBox] = await Promise.all([media.boundingBox(), profile.boundingBox()]);
+		const [mediaBox, profileBox, searchBox] = await Promise.all([
+			media.boundingBox(),
+			profile.boundingBox(),
+			search.boundingBox()
+		]);
 		expect(mediaBox).not.toBeNull();
 		expect(profileBox).not.toBeNull();
+		expect(searchBox).not.toBeNull();
 		expect(mediaBox!.x).toBeGreaterThanOrEqual(0);
-		expect(mediaBox!.x + mediaBox!.width).toBeLessThanOrEqual(profileBox!.x);
+		expect(profileBox!.x + profileBox!.width).toBeLessThanOrEqual(mediaBox!.x);
+		expect(mediaBox!.x + mediaBox!.width).toBeLessThanOrEqual(searchBox!.x);
 
 		await profile.click();
 		await expect(page.getByRole('menuitem', { name: 'Profile' })).toBeVisible();
-		await expect(page.getByRole('menuitem', { name: 'Admin' })).toHaveCount(0);
+		await expect(page.getByRole('menuitem', { name: 'Settings' })).toBeVisible();
 	});
 });

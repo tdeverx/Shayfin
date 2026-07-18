@@ -1,7 +1,7 @@
 class ThemeAudioManager {
 	private current: HTMLAudioElement | null = null;
 
-	async play(url: string, volume = 0.35): Promise<void> {
+	async play(url: string, volume = 0.5): Promise<void> {
 		this.stopImmediately();
 		const audio = new Audio(url);
 		audio.volume = volume;

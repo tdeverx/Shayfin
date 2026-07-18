@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import { Button } from '$lib/components/ui/button';
@@ -7,25 +6,56 @@
 	import type { HeroTrailer } from '$lib/jellyfin';
 	import Spotlight from './spotlight.svelte';
 
+	const IMAGE_LEAD_MS = 5_000;
+	const IMAGE_ROTATION_MS = 10_000;
+	const TRAILER_ROTATION_SECONDS = 30;
+
 	let {
 		items,
-		intervalMs = 9000,
 		trailer = null,
 		onItemChange
 	}: {
 		items: SpotlightModel[];
-		intervalMs?: number;
 		trailer?: HeroTrailer | null;
 		onItemChange?: (id: string) => void;
 	} = $props();
 
 	let index = $state(0);
 	let paused = $state(false);
+	let showTrailer = $state(false);
+	let trailerUnavailable = $state(false);
+	let advanceDue = $state(false);
+	let slideStartedAt = $state(0);
+	let activeId = $state('');
 	let current = $derived(items[index] ?? items[0]);
+	let effectiveTrailer = $derived(trailerUnavailable ? null : trailer);
 
 	function select(next: number) {
 		if (!items.length) return;
 		index = (next + items.length) % items.length;
+	}
+
+	function setPaused(value: boolean) {
+		paused = value;
+		if (!value && advanceDue) {
+			advanceDue = false;
+			select(index + 1);
+		}
+	}
+
+	function requestAdvance() {
+		if (items.length <= 1) return;
+		if (paused) advanceDue = true;
+		else select(index + 1);
+	}
+
+	function trailerProgress(seconds: number) {
+		if (seconds >= TRAILER_ROTATION_SECONDS) requestAdvance();
+	}
+
+	function trailerFailed() {
+		trailerUnavailable = true;
+		showTrailer = false;
 	}
 
 	$effect(() => {
@@ -33,13 +63,27 @@
 		if (current) onItemChange?.(current.id);
 	});
 
-	onMount(() => {
-		const timer = setInterval(() => {
-			if (!paused && items.length > 1 && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-				select(index + 1);
-			}
-		}, intervalMs);
-		return () => clearInterval(timer);
+	$effect(() => {
+		const id = current?.id;
+		if (!id || id === activeId) return;
+		activeId = id;
+		slideStartedAt = Date.now();
+		showTrailer = false;
+		trailerUnavailable = false;
+		advanceDue = false;
+	});
+
+	$effect(() => {
+		const id = current?.id;
+		const trailerUrl = effectiveTrailer?.url;
+		if (!id || items.length <= 1 || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+		const elapsed = Math.max(0, Date.now() - slideStartedAt);
+		if (trailerUrl) {
+			const timer = setTimeout(() => (showTrailer = true), Math.max(0, IMAGE_LEAD_MS - elapsed));
+			return () => clearTimeout(timer);
+		}
+		const timer = setTimeout(requestAdvance, Math.max(0, IMAGE_ROTATION_MS - elapsed));
+		return () => clearTimeout(timer);
 	});
 </script>
 
@@ -48,13 +92,21 @@
 		class="relative"
 		role="region"
 		aria-label="Featured media"
-		onmouseenter={() => (paused = true)}
-		onmouseleave={() => (paused = false)}
-		onfocusin={() => (paused = true)}
-		onfocusout={() => (paused = false)}
+		onmouseenter={() => setPaused(true)}
+		onmouseleave={() => setPaused(false)}
+		onfocusin={() => setPaused(true)}
+		onfocusout={() => setPaused(false)}
 	>
 		{#key `${current.id}-${trailer?.url ?? ''}`}
-			<Spotlight item={current} {trailer} />
+			<Spotlight
+				item={current}
+				trailer={effectiveTrailer}
+				{showTrailer}
+				{paused}
+				onTrailerProgress={trailerProgress}
+				onTrailerEnded={requestAdvance}
+				onTrailerUnavailable={trailerFailed}
+			/>
 		{/key}
 		{#if items.length > 1}
 			<div class="absolute top-1/2 right-4 flex -translate-y-1/2 flex-col gap-2 sm:right-6">

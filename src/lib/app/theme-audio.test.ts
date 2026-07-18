@@ -53,6 +53,12 @@ describe('theme audio manager', () => {
 		expect(FakeAudio.instances[1].volume).toBe(0.25);
 	});
 
+	it('plays theme music at half volume by default', async () => {
+		await themeAudio.play('/theme.mp3');
+
+		expect(FakeAudio.instances[0].volume).toBe(0.5);
+	});
+
 	it('fades a preview to silence before stopping it', async () => {
 		await themeAudio.play('/theme.mp3', 0.4);
 		const audio = FakeAudio.instances[0];

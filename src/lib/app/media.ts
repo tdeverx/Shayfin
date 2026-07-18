@@ -48,14 +48,20 @@ export function toMediaCard(
 	if (!item.Id || /^0+$/.test(item.Id) || !item.Name) return null;
 	const backdropTag = item.BackdropImageTags?.[0];
 	const primaryTag = item.ImageTags?.Primary;
-	const useBackdrop = variant === 'landscape' && backdropTag;
-	const imageUrl = useBackdrop
-		? itemImageUrl(api, item.Id, { type: 'Backdrop', tag: backdropTag, maxWidth: 720 })
-		: primaryTag
-			? itemImageUrl(api, item.Id, { type: 'Primary', tag: primaryTag, maxWidth: 480 })
-			: backdropTag
-				? itemImageUrl(api, item.Id, { type: 'Backdrop', tag: backdropTag, maxWidth: 720 })
-				: undefined;
+	const isEpisode = item.Type === 'Episode';
+	const episodeStill =
+		isEpisode && primaryTag
+			? itemImageUrl(api, item.Id, { type: 'Primary', tag: primaryTag, maxWidth: 720 })
+			: undefined;
+	const imageUrl =
+		variant === 'portrait'
+			? posterForItem(api, item, 480)
+			: (episodeStill ??
+				(backdropTag
+					? itemImageUrl(api, item.Id, { type: 'Backdrop', tag: backdropTag, maxWidth: 720 })
+					: primaryTag
+						? itemImageUrl(api, item.Id, { type: 'Primary', tag: primaryTag, maxWidth: 720 })
+						: undefined));
 
 	return {
 		id: item.Id,
@@ -63,9 +69,7 @@ export function toMediaCard(
 		kind: itemKind(item),
 		href: itemHref(item),
 		imageUrl,
-		backdropUrl: backdropTag
-			? itemImageUrl(api, item.Id, { type: 'Backdrop', tag: backdropTag, maxWidth: 1280 })
-			: undefined,
+		backdropUrl: backdropForItem(api, item, 1280),
 		year: item.ProductionYear ?? undefined,
 		secondary: itemSecondary(item),
 		progress: itemProgress(item),
@@ -82,12 +86,9 @@ export function toMediaCard(
 export function toSpotlight(api: Api, item: BaseItemDto): SpotlightModel | null {
 	const card = toMediaCard(api, item, 'landscape');
 	if (!card || !item.Id) return null;
-	const backdropTag = item.BackdropImageTags?.[0];
 	return {
 		...card,
-		backdropUrl: backdropTag
-			? itemImageUrl(api, item.Id, { type: 'Backdrop', tag: backdropTag, maxWidth: 1600 })
-			: card.imageUrl,
+		backdropUrl: backdropForItem(api, item, 1600) ?? card.imageUrl,
 		overview: item.Overview ?? undefined,
 		rating: item.OfficialRating ?? undefined,
 		runtime: formatRuntime(item.RunTimeTicks)
@@ -98,4 +99,34 @@ export function imageForItem(api: Api, item: BaseItemDto, width = 480): string |
 	if (!item.Id) return undefined;
 	const tag = item.ImageTags?.Primary;
 	return tag ? itemImageUrl(api, item.Id, { type: 'Primary', tag, maxWidth: width }) : undefined;
+}
+
+export function posterForItem(api: Api, item: BaseItemDto, width = 480): string | undefined {
+	if (item.Type === 'Episode') {
+		const parentId = item.SeasonId ?? item.SeriesId;
+		if (parentId) return itemImageUrl(api, parentId, { type: 'Primary', maxWidth: width });
+	}
+	return imageForItem(api, item, width);
+}
+
+export function backdropForItem(api: Api, item: BaseItemDto, width = 1280): string | undefined {
+	if (!item.Id) return undefined;
+	if (item.Type === 'Episode' && item.ImageTags?.Primary) {
+		return itemImageUrl(api, item.Id, {
+			type: 'Primary',
+			tag: item.ImageTags.Primary,
+			maxWidth: width
+		});
+	}
+	const tag = item.BackdropImageTags?.[0];
+	if (tag) return itemImageUrl(api, item.Id, { type: 'Backdrop', tag, maxWidth: width });
+	const parentTag = item.ParentBackdropImageTags?.[0];
+	if (item.ParentBackdropItemId && parentTag) {
+		return itemImageUrl(api, item.ParentBackdropItemId, {
+			type: 'Backdrop',
+			tag: parentTag,
+			maxWidth: width
+		});
+	}
+	return undefined;
 }

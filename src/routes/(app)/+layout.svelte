@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, onNavigate } from '$app/navigation';
+	import { browser } from '$app/environment';
 	import { resolve } from '$app/paths';
 	import type { ResolvedPathname } from '$app/types';
 	import { onMount } from 'svelte';
@@ -26,7 +27,6 @@
 	let searchLoading = $state(false);
 	let selectedRequest = $state<UnifiedSearchItem | null>(null);
 	let requestOpen = $state(false);
-	let themeAudioEnabled = $state(false);
 	let knownAchievementIds: Set<string> | null = null;
 	const resolvePath = resolve as (path: string) => ResolvedPathname;
 
@@ -40,15 +40,26 @@
 			await goto(resolve('/login'));
 			return;
 		}
-		themeAudioEnabled = session.themeAudioEnabled;
 		ready = true;
 	});
 
 	$effect(() => {
-		if (ready && session.user) {
-			session.setThemeAudio(themeAudioEnabled);
-			if (!themeAudioEnabled) themeAudio.fadeAndStop();
-		}
+		if (ready && session.user && !session.themeAudioEnabled) themeAudio.fadeAndStop();
+	});
+
+	onNavigate((navigation) => {
+		if (
+			!browser ||
+			!document.startViewTransition ||
+			matchMedia('(prefers-reduced-motion: reduce)').matches
+		)
+			return;
+		return new Promise<void>((resolveTransition) => {
+			document.startViewTransition(async () => {
+				resolveTransition();
+				await navigation.complete;
+			});
+		});
 	});
 
 	$effect(() => {
@@ -195,7 +206,6 @@
 		navigation={session.navigation}
 		connected={!session.error}
 		serverVersion={session.bootstrap?.jellyfin?.server.version}
-		bind:themeAudioEnabled
 		onSearch={() => (searchOpen = true)}
 		onLogout={logout}
 	>
@@ -219,7 +229,9 @@
 		<Skeleton class="h-80 w-full rounded-xl" />
 		<Skeleton class="h-6 w-48" />
 		<div class="grid grid-cols-2 gap-4 md:grid-cols-4">
-			{#each [0, 1, 2, 3] as skeleton (skeleton)}<Skeleton class="aspect-video rounded-xl" />{/each}
+			{#each [0, 1, 2, 3] as skeleton (skeleton)}<Skeleton
+					class="aspect-video rounded-4xl"
+				/>{/each}
 		</div>
 	</div>
 {/if}

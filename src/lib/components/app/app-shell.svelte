@@ -1,15 +1,15 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { onMount } from 'svelte';
-	import Volume2Icon from '@lucide/svelte/icons/volume-2';
-	import VolumeXIcon from '@lucide/svelte/icons/volume-x';
+	import { page } from '$app/state';
+	import SearchIcon from '@lucide/svelte/icons/search';
 	import * as Sidebar from '$lib/components/ui/sidebar';
-	import { Toggle } from '$lib/components/ui/toggle';
+	import { Button } from '$lib/components/ui/button';
 	import { Tooltip, TooltipContent, TooltipTrigger } from '$lib/components/ui/tooltip';
 	import type { AppUser, MediaNavigationItem } from '$lib/app/models';
-	import AdminSidebar from './admin-sidebar.svelte';
 	import MediaPill from './media-pill.svelte';
 	import ProfileMenu from './profile-menu.svelte';
+	import SettingsSidebar from './settings-sidebar.svelte';
 
 	let {
 		children,
@@ -17,7 +17,6 @@
 		navigation,
 		connected = true,
 		serverVersion,
-		themeAudioEnabled = $bindable(false),
 		onSearch,
 		onLogout
 	}: {
@@ -26,12 +25,19 @@
 		navigation: MediaNavigationItem[];
 		connected?: boolean;
 		serverVersion?: string;
-		themeAudioEnabled?: boolean;
 		onSearch: () => void;
 		onLogout: () => void | Promise<void>;
 	} = $props();
 
 	let sidebarOpen = $state(false);
+	let settingsContext = $derived(
+		page.url.pathname === '/settings' ||
+			page.url.pathname.startsWith('/settings/') ||
+			page.url.pathname === '/profile' ||
+			page.url.pathname.startsWith('/profile/') ||
+			page.url.pathname === '/admin' ||
+			page.url.pathname.startsWith('/admin/')
+	);
 
 	onMount(() => {
 		const stored = document.cookie
@@ -44,26 +50,34 @@
 </script>
 
 {#snippet Chrome()}
-	<MediaPill items={navigation} {onSearch} />
-	<div class="fixed top-3 right-3 z-30 flex items-center gap-1">
+	<div class="fixed top-3 left-3 z-30">
+		<ProfileMenu {user} {onLogout} />
+	</div>
+	{#if settingsContext}
+		<Sidebar.Trigger
+			class="fixed top-3 left-16 z-30 size-10 rounded-full bg-background/80 backdrop-blur"
+			aria-label="Toggle settings sidebar"
+		/>
+	{/if}
+	<MediaPill items={navigation} />
+	<div class="fixed top-3 right-3 z-30">
 		<Tooltip>
 			<TooltipTrigger>
 				{#snippet child({ props })}
-					<Toggle
+					<Button
 						{...props}
-						bind:pressed={themeAudioEnabled}
-						variant="default"
-						size="default"
-						class="size-10 rounded-full bg-background/80 p-0 backdrop-blur"
-						aria-label={themeAudioEnabled ? 'Disable theme music' : 'Enable theme music'}
+						variant="secondary"
+						size="icon-lg"
+						class="rounded-full bg-background/80 backdrop-blur"
+						aria-label="Search"
+						onclick={onSearch}
 					>
-						{#if themeAudioEnabled}<Volume2Icon />{:else}<VolumeXIcon />{/if}
-					</Toggle>
+						<SearchIcon />
+					</Button>
 				{/snippet}
 			</TooltipTrigger>
-			<TooltipContent>{themeAudioEnabled ? 'Theme music on' : 'Theme music off'}</TooltipContent>
+			<TooltipContent>Search · ⌘K</TooltipContent>
 		</Tooltip>
-		<ProfileMenu {user} {onLogout} />
 	</div>
 {/snippet}
 
@@ -74,9 +88,9 @@
 	Skip to content
 </a>
 
-{#if user.isAdministrator}
+{#if settingsContext}
 	<Sidebar.Provider bind:open={sidebarOpen}>
-		<AdminSidebar {connected} {serverVersion} />
+		<SettingsSidebar {user} {connected} {serverVersion} />
 		<Sidebar.Inset id="main-content" class="min-w-0 bg-transparent">
 			{@render Chrome()}
 			<div class="min-h-screen min-w-0 px-4 pt-20 pb-10 sm:px-6 lg:px-8">

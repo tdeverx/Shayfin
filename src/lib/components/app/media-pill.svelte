@@ -6,23 +6,15 @@
 	import HouseIcon from '@lucide/svelte/icons/house';
 	import FilmIcon from '@lucide/svelte/icons/film';
 	import TvIcon from '@lucide/svelte/icons/tv';
-	import SearchIcon from '@lucide/svelte/icons/search';
-	import { Button } from '$lib/components/ui/button';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
 	import type { MediaNavigationItem } from '$lib/app/models';
 
-	let {
-		items,
-		onSearch
-	}: {
-		items: MediaNavigationItem[];
-		onSearch: () => void;
-	} = $props();
+	let { items }: { items: MediaNavigationItem[] } = $props();
 
 	const icons = { home: HouseIcon, movies: FilmIcon, series: TvIcon };
 	const resolvePath = resolve as (path: string) => ResolvedPathname;
 	let active = $derived(
-		items.find((item) => page.url.pathname.startsWith(resolvePath(item.href)))?.id ?? 'home'
+		items.find((item) => page.url.pathname.startsWith(resolvePath(item.href)))?.id ?? ''
 	);
 
 	function select(value: unknown) {
@@ -34,7 +26,7 @@
 
 <nav
 	aria-label="Media"
-	class="fixed top-3 left-1/2 z-30 flex max-w-[calc(100vw-8.5rem)] -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-background/95 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80"
+	class="fixed top-3 left-1/2 z-30 flex max-w-[calc(100vw-8.5rem)] -translate-x-1/2 items-center rounded-full border border-border bg-background/95 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80"
 >
 	<ToggleGroup.Root
 		type="single"
@@ -55,15 +47,4 @@
 			</ToggleGroup.Item>
 		{/each}
 	</ToggleGroup.Root>
-	<Button
-		variant="secondary"
-		size="sm"
-		class="rounded-full shadow-none"
-		aria-label="Search"
-		onclick={onSearch}
-	>
-		<SearchIcon data-icon="inline-start" />
-		<span class="hidden md:inline">Search</span>
-		<span class="hidden text-xs text-muted-foreground lg:inline">⌘K</span>
-	</Button>
 </nav>

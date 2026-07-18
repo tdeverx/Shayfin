@@ -151,3 +151,11 @@
 		font: inherit;
 	}
 }
+
+@media (prefers-reduced-motion: no-preference) {
+	::view-transition-old(root),
+	::view-transition-new(root) {
+		animation-duration: 160ms;
+		animation-timing-function: ease-out;
+	}
+}

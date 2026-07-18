@@ -151,7 +151,7 @@ class SessionState {
 		this.navigation = [
 			{ id: 'home', label: 'Home', href: '/home' },
 			...(types.has('movies') ? [{ id: 'movies' as const, label: 'Movies', href: '/movies' }] : []),
-			...(types.has('tvshows') ? [{ id: 'series' as const, label: 'Series', href: '/series' }] : [])
+			...(types.has('tvshows') ? [{ id: 'series' as const, label: 'Shows', href: '/series' }] : [])
 		];
 	}
 

@@ -34,7 +34,7 @@
 	description="Search your library and discover media to request"
 	class="sm:max-w-2xl"
 >
-	<Command.Input bind:value={query} placeholder="Search movies and series…" />
+	<Command.Input bind:value={query} placeholder="Search movies and shows…" />
 	<Command.List class="max-h-[min(60vh,34rem)]">
 		{#if loading}<Command.Loading>Searching…</Command.Loading>{/if}
 		{#if query.trim().length > 1 && !loading && localResults.length === 0 && externalResults.length === 0}
@@ -50,7 +50,7 @@
 						class="items-start gap-3 py-2.5"
 					>
 						<div
-							class="flex aspect-[2/3] w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground"
+							class="flex aspect-[2/3] w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted text-muted-foreground"
 						>
 							{#if item.imageUrl}<img
 									src={item.imageUrl}
@@ -85,7 +85,7 @@
 						class="items-start gap-3 py-2.5"
 					>
 						<div
-							class="flex aspect-[2/3] w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground"
+							class="flex aspect-[2/3] w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted text-muted-foreground"
 						>
 							{#if item.imageUrl}<img
 									src={item.imageUrl}

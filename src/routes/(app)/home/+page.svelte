@@ -30,7 +30,7 @@
 	let heroItems = $state<BaseItemDto[]>([]);
 	let heroSourceSectionId = $state<string | null>(null);
 	let heroTrailer = $state<HeroTrailer | null>(null);
-	let heroIntervalMs = $state(9000);
+	let heroTrailerItemId = $state<string | null>(null);
 	let trailerOverrides = $state<Record<string, string>>({});
 	let preferLocalTrailers = $state(false);
 	let onlyLocalTrailers = $state(false);
@@ -94,7 +94,6 @@
 			if (mediaBar.data?.items.length) {
 				heroItems = mediaBar.data.items;
 				heroSourceSectionId = null;
-				heroIntervalMs = mediaBar.data.intervalMs;
 				trailerOverrides = mediaBar.data.trailerOverrides;
 				preferLocalTrailers = mediaBar.data.preferLocalTrailers;
 				onlyLocalTrailers = mediaBar.data.onlyLocalTrailers;
@@ -102,7 +101,6 @@
 				const fallback = selectFallbackHeroSection(sections);
 				heroItems = fallback?.items ?? [];
 				heroSourceSectionId = fallback?.id ?? null;
-				heroIntervalMs = 9000;
 				trailerOverrides = {};
 				preferLocalTrailers = false;
 				onlyLocalTrailers = false;
@@ -122,12 +120,16 @@
 		if (!item || !api || !userId) return;
 		const token = ++heroLoadToken;
 		heroTrailer = null;
+		heroTrailerItemId = null;
 		const trailer = await resolveHeroTrailer(api, item, userId, {
 			override: trailerOverrides[id],
 			preferLocal: preferLocalTrailers,
 			onlyLocal: onlyLocalTrailers
 		});
-		if (token === heroLoadToken) heroTrailer = trailer;
+		if (token === heroLoadToken) {
+			heroTrailer = trailer;
+			heroTrailerItemId = id;
+		}
 	}
 
 	async function loadDownloads() {
@@ -180,12 +182,12 @@
 
 {#if loading}
 	<div class="space-y-8">
-		<Skeleton class="h-[23rem] w-full rounded-xl" />
+		<Skeleton class="h-[23rem] w-full rounded-4xl" />
 		{#each [0, 1] as row (row)}
 			<div class="space-y-3">
 				<Skeleton class="h-6 w-48" />
 				<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-					{#each [0, 1, 2, 3] as card (card)}<Skeleton class="aspect-video rounded-xl" />{/each}
+					{#each [0, 1, 2, 3] as card (card)}<Skeleton class="aspect-video rounded-4xl" />{/each}
 				</div>
 			</div>
 		{/each}
@@ -210,8 +212,7 @@
 	<div class="space-y-9">
 		{#if heroModels.length}<HeroCarousel
 				items={heroModels}
-				intervalMs={heroIntervalMs}
-				trailer={heroTrailer}
+				trailer={heroTrailerItemId ? heroTrailer : null}
 				onItemChange={selectHeroItem}
 			/>{/if}
 		<DownloadStrip {downloads} />

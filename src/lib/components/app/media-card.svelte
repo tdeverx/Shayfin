@@ -18,10 +18,10 @@
 
 <a href={resolvePath(item.href)} class="group block min-w-0 outline-none">
 	<div
-		class="relative overflow-hidden border border-border bg-muted transition-transform duration-200 group-hover:-translate-y-0.5 group-focus-visible:ring-2 group-focus-visible:ring-ring {variant ===
+		class="relative overflow-hidden rounded-4xl border border-border bg-muted transition-transform duration-200 group-hover:-translate-y-0.5 group-focus-visible:ring-2 group-focus-visible:ring-ring {variant ===
 		'portrait'
-			? 'aspect-[2/3] rounded-lg'
-			: 'aspect-video rounded-xl'}"
+			? 'aspect-[2/3]'
+			: 'aspect-video'}"
 	>
 		{#if item.imageUrl}
 			<img

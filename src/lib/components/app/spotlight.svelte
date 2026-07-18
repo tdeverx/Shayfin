@@ -8,18 +8,36 @@
 
 	let {
 		item,
-		trailer = null
+		trailer = null,
+		showTrailer = false,
+		paused = false,
+		onTrailerProgress,
+		onTrailerEnded,
+		onTrailerUnavailable
 	}: {
 		item: SpotlightModel;
 		trailer?: HeroTrailer | null;
+		showTrailer?: boolean;
+		paused?: boolean;
+		onTrailerProgress?: (seconds: number) => void;
+		onTrailerEnded?: () => void;
+		onTrailerUnavailable?: () => void;
 	} = $props();
 
 	let trailerFailed = $state(false);
+	let trailerVisible = $state(false);
+	let video = $state<HTMLVideoElement | null>(null);
+
+	$effect(() => {
+		if (!video) return;
+		if (paused) video.pause();
+		else if (showTrailer) void video.play().catch(() => undefined);
+	});
 </script>
 
 <section
 	aria-labelledby="spotlight-title"
-	class="relative isolate min-h-[20rem] overflow-hidden rounded-xl border border-border bg-card sm:min-h-[23rem]"
+	class="relative isolate min-h-[20rem] overflow-hidden rounded-4xl border border-border bg-card sm:min-h-[23rem]"
 >
 	{#if item.backdropUrl ?? item.imageUrl}
 		<img
@@ -28,16 +46,24 @@
 			class="absolute inset-0 -z-20 size-full object-cover"
 		/>
 	{/if}
-	{#if trailer && !trailerFailed}
+	{#if trailer && showTrailer && !trailerFailed}
 		<video
+			bind:this={video}
 			src={trailer.url}
 			poster={item.backdropUrl ?? item.imageUrl}
 			autoplay
 			muted
-			loop
 			playsinline
-			onerror={() => (trailerFailed = true)}
-			class="absolute inset-0 z-[-15] size-full object-cover motion-reduce:hidden"
+			onplaying={() => (trailerVisible = true)}
+			ontimeupdate={(event) => onTrailerProgress?.(event.currentTarget.currentTime)}
+			onended={onTrailerEnded}
+			onerror={() => {
+				trailerFailed = true;
+				onTrailerUnavailable?.();
+			}}
+			class="absolute inset-0 z-[-15] size-full object-cover opacity-0 transition-opacity duration-700 motion-reduce:hidden {trailerVisible
+				? 'opacity-100'
+				: ''}"
 		></video>
 	{/if}
 	<div class="absolute inset-0 -z-10 bg-gradient-to-r from-black via-black/65 to-transparent"></div>

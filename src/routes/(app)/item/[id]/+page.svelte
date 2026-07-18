@@ -1,20 +1,28 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
+	import { goto } from '$app/navigation';
 	import { onDestroy } from 'svelte';
+	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import HeartIcon from '@lucide/svelte/icons/heart';
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base-item-dto.js';
 	import { getUserLibraryApi } from '@jellyfin/sdk/lib/utils/api/user-library-api.js';
 	import {
-		itemImageUrl,
 		loadItemDetail,
 		loadSeriesDetail,
 		loadThemeSongs,
 		type SeriesDetail
 	} from '$lib/jellyfin';
-	import { formatRuntime, imageForItem, itemProgress, itemSecondary } from '$lib/app/media';
+	import {
+		backdropForItem,
+		formatRuntime,
+		imageForItem,
+		itemProgress,
+		itemSecondary,
+		posterForItem
+	} from '$lib/app/media';
 	import { session } from '$lib/app/session.svelte';
 	import { themeAudio } from '$lib/app/theme-audio';
 	import { Badge } from '$lib/components/ui/badge';
@@ -39,10 +47,9 @@
 	let backdropUrl = $derived.by(() => {
 		const api = session.api;
 		if (!api || !item?.Id) return undefined;
-		const tag = item.BackdropImageTags?.[0];
-		return tag ? itemImageUrl(api, item.Id, { type: 'Backdrop', tag, maxWidth: 1800 }) : undefined;
+		return backdropForItem(api, item, 1800);
 	});
-	let posterUrl = $derived(session.api && item ? imageForItem(session.api, item, 560) : undefined);
+	let posterUrl = $derived(session.api && item ? posterForItem(session.api, item, 560) : undefined);
 	let episodes = $derived(series?.episodesBySeason[selectedSeason] ?? []);
 	let playable = $derived.by(() => {
 		if (!item) return null;
@@ -111,6 +118,11 @@
 		}
 	}
 
+	function goBack() {
+		if (history.length > 1) history.back();
+		else void goto(resolve('/home'));
+	}
+
 	async function playTheme(url: string) {
 		if (!session.themeAudioEnabled || url !== themeUrl) return;
 		try {
@@ -148,7 +160,7 @@
 
 {#if loading}
 	<div class="space-y-6">
-		<Skeleton class="h-[28rem] w-full rounded-xl" />
+		<Skeleton class="h-[28rem] w-full rounded-4xl" />
 		<Skeleton class="h-8 w-64" />
 	</div>
 {:else if error || !item}
@@ -161,8 +173,12 @@
 	</Empty.Root>
 {:else}
 	<article class="space-y-8">
+		<Button variant="ghost" size="sm" onclick={goBack} aria-label="Back to previous page">
+			<ArrowLeftIcon data-icon="inline-start" />
+			Back
+		</Button>
 		<section
-			class="relative isolate min-h-[28rem] overflow-hidden rounded-xl border border-border bg-card"
+			class="relative isolate min-h-[28rem] overflow-hidden rounded-4xl border border-border bg-card"
 		>
 			{#if backdropUrl}<img
 					src={backdropUrl}
@@ -177,7 +193,7 @@
 					<img
 						src={posterUrl}
 						alt=""
-						class="hidden aspect-[2/3] w-44 rounded-lg border border-border object-cover shadow-lg sm:block"
+						class="hidden aspect-[2/3] w-44 rounded-4xl border border-border object-cover shadow-lg sm:block"
 					/>
 				{/if}
 				<div class="max-w-3xl space-y-4">
@@ -235,9 +251,9 @@
 					{#each episodes as episode (episode.Id)}
 						<a
 							href={episode.Id ? resolve('/(app)/item/[id]', { id: episode.Id }) : '#'}
-							class="group flex min-w-0 gap-4 rounded-xl border border-border bg-card p-3 transition-colors hover:bg-accent"
+							class="group flex min-w-0 gap-4 rounded-4xl border border-border bg-card p-3 transition-colors hover:bg-accent"
 						>
-							<div class="aspect-video w-36 shrink-0 overflow-hidden rounded-lg bg-muted sm:w-44">
+							<div class="aspect-video w-36 shrink-0 overflow-hidden rounded-3xl bg-muted sm:w-44">
 								{#if session.api && imageForItem(session.api, episode, 420)}<img
 										src={imageForItem(session.api, episode, 420)}
 										alt=""

@@ -46,18 +46,18 @@
 					loadError: 'Movies could not be loaded.'
 				}
 			: {
-					title: 'Series',
+					title: 'Shows',
 					viewType: 'series' as const,
 					itemType: BaseItemKind.Series,
 					countLabel: 'series',
 					yearLabel: 'First aired',
-					unavailable: 'Series are unavailable',
-					emptyMatch: 'No matching series',
-					emptyLibrary: 'No series libraries found',
+					unavailable: 'Shows are unavailable',
+					emptyMatch: 'No matching shows',
+					emptyLibrary: 'No show libraries found',
 					emptyDescription:
 						'Series will appear here when this Jellyfin user can access a television library.',
-					searchPlaceholder: 'Search series or genres',
-					loadError: 'Series could not be loaded.'
+					searchPlaceholder: 'Search shows or genres',
+					loadError: 'Shows could not be loaded.'
 				}
 	);
 
@@ -228,7 +228,7 @@
 		>
 			{#each Array.from({ length: 12 }, (_, index) => index) as index (index)}
 				<div class="space-y-2">
-					<Skeleton class="aspect-[2/3] w-full rounded-lg" />
+					<Skeleton class="aspect-[2/3] w-full rounded-4xl" />
 					<Skeleton class="h-4 w-4/5" />
 					<Skeleton class="h-3 w-12" />
 				</div>

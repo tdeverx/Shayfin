@@ -22,7 +22,7 @@
 	<section aria-labelledby="downloads-title" class="flex flex-col gap-3">
 		<h2 id="downloads-title" class="text-lg font-medium tracking-tight">On the way</h2>
 		<div
-			class="grid overflow-hidden rounded-xl border border-border bg-card {downloads.length > 1
+			class="grid overflow-hidden rounded-4xl border border-border bg-card {downloads.length > 1
 				? 'md:grid-cols-2'
 				: ''}"
 		>
@@ -33,7 +33,7 @@
 						: ''}"
 				>
 					<div
-						class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted"
+						class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-3xl bg-muted"
 					>
 						{#if download.imageUrl}<img
 								src={download.imageUrl}
