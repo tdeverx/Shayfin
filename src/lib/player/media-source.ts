@@ -1,4 +1,4 @@
-import Hls from 'hls.js';
+import type Hls from 'hls.js';
 import { clamp, shouldUseNativeHls } from './playback.js';
 import type { PlaybackRoute } from './types.js';
 
@@ -53,34 +53,39 @@ export class MediaSourceController {
 
 			const nativeHls = route.isHls && shouldUseNativeHls(this.video);
 			if (route.isHls && !nativeHls) {
-				if (!Hls.isSupported()) {
-					finish(new Error('This browser cannot play Jellyfin HLS streams.'));
-					return;
-				}
+				void import('hls.js')
+					.then(({ default: HlsConstructor }) => {
+						if (signal.aborted || settled) return;
+						if (!HlsConstructor.isSupported()) {
+							finish(new Error('This browser cannot play Jellyfin HLS streams.'));
+							return;
+						}
 
-				const instance = new Hls({
-					enableWorker: true,
-					backBufferLength: 90,
-					maxBufferLength: 30
-				});
-				this.hls = instance;
-				instance.on(Hls.Events.MEDIA_ATTACHED, () => instance.loadSource(route.url));
-				instance.on(Hls.Events.ERROR, (_event, data) => {
-					if (!data.fatal) return;
-					recoveryAttempts += 1;
-					if (data.type === Hls.ErrorTypes.NETWORK_ERROR && recoveryAttempts <= 2) {
-						instance.startLoad();
-						return;
-					}
-					if (data.type === Hls.ErrorTypes.MEDIA_ERROR && recoveryAttempts <= 2) {
-						instance.recoverMediaError();
-						return;
-					}
-					const message = 'The HLS stream stopped after an unrecoverable playback error.';
-					if (settled) this.onFatalError(message);
-					else finish(new Error(message));
-				});
-				instance.attachMedia(this.video);
+						const instance = new HlsConstructor({
+							enableWorker: true,
+							backBufferLength: 90,
+							maxBufferLength: 30
+						});
+						this.hls = instance;
+						instance.on(HlsConstructor.Events.MEDIA_ATTACHED, () => instance.loadSource(route.url));
+						instance.on(HlsConstructor.Events.ERROR, (_event, data) => {
+							if (!data.fatal) return;
+							recoveryAttempts += 1;
+							if (data.type === HlsConstructor.ErrorTypes.NETWORK_ERROR && recoveryAttempts <= 2) {
+								instance.startLoad();
+								return;
+							}
+							if (data.type === HlsConstructor.ErrorTypes.MEDIA_ERROR && recoveryAttempts <= 2) {
+								instance.recoverMediaError();
+								return;
+							}
+							const message = 'The HLS stream stopped after an unrecoverable playback error.';
+							if (settled) this.onFatalError(message);
+							else finish(new Error(message));
+						});
+						instance.attachMedia(this.video);
+					})
+					.catch(() => finish(new Error('The HLS playback engine could not be loaded.')));
 				return;
 			}
 

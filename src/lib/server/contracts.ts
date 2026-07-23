@@ -30,6 +30,8 @@ export type DownloadState =
 export interface DownloadProgress {
 	id: string;
 	service: 'sonarr' | 'radarr';
+	instanceId: string;
+	instanceLabel: string;
 	mediaType: 'series' | 'movie';
 	title: string;
 	providerIds: {

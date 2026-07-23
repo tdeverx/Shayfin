@@ -43,6 +43,8 @@ export class PluginHttpClient {
 		}
 	): Promise<CapabilityState<T>> {
 		if (!this.fetchImpl) return unavailableFetch();
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 5_000);
 
 		try {
 			const response = await this.fetchImpl(this.url(path, options.query), {
@@ -52,7 +54,8 @@ export class PluginHttpClient {
 					Authorization: this.api.authorizationHeader,
 					...(options.body === undefined ? {} : { 'Content-Type': 'application/json' })
 				},
-				body: options.body === undefined ? undefined : JSON.stringify(options.body)
+				body: options.body === undefined ? undefined : JSON.stringify(options.body),
+				signal: controller.signal
 			});
 
 			if (!response.ok) {
@@ -60,6 +63,13 @@ export class PluginHttpClient {
 					status: capabilityStatusForHttp(response.status),
 					statusCode: response.status,
 					message: defaultMessage(response.status)
+				};
+			}
+			if (response.status === 204 || response.headers.get('content-length') === '0') {
+				return {
+					status: 'available',
+					statusCode: response.status,
+					data: options.decode(undefined)
 				};
 			}
 
@@ -80,17 +90,27 @@ export class PluginHttpClient {
 		} catch (error) {
 			return {
 				status: 'degraded',
-				message: error instanceof Error ? error.message : 'The plugin request failed'
+				message:
+					error instanceof DOMException && error.name === 'AbortError'
+						? 'The plugin request timed out'
+						: error instanceof Error
+							? error.message
+							: 'The plugin request failed'
 			};
+		} finally {
+			clearTimeout(timeout);
 		}
 	}
 
 	async resource(path: string): Promise<CapabilityState<{ url: string }>> {
 		if (!this.fetchImpl) return unavailableFetch();
 		const url = this.url(path);
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 5_000);
 		try {
 			const response = await this.fetchImpl(url, {
-				headers: { Authorization: this.api.authorizationHeader }
+				headers: { Authorization: this.api.authorizationHeader },
+				signal: controller.signal
 			});
 			if (!response.ok) {
 				return {
@@ -106,6 +126,8 @@ export class PluginHttpClient {
 				status: 'degraded',
 				message: error instanceof Error ? error.message : 'The plugin resource request failed'
 			};
+		} finally {
+			clearTimeout(timeout);
 		}
 	}
 }

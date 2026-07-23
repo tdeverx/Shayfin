@@ -1,7 +1,7 @@
 import { authenticateRequest } from '$lib/server/auth';
 import { getConfigStore } from '$lib/server/config';
 import { errorResponse, parseJson } from '$lib/server/errors';
-import { requireIntegration } from '$lib/server/integrations';
+import { requireSeerrIntegration } from '$lib/server/integrations';
 import { createSeerrRequest, resolveSeerrUserId, seerrRequests } from '$lib/server/seerr';
 import { json } from '@sveltejs/kit';
 import { z } from 'zod';
@@ -22,7 +22,7 @@ const CreateRequestSchema = z.object({
 async function context(request: Request, fetcher: typeof fetch) {
 	const store = getConfigStore();
 	const auth = await authenticateRequest(request, { store, fetcher });
-	const integration = await requireIntegration(store, 'seerr');
+	const integration = await requireSeerrIntegration(store);
 	const userId = await resolveSeerrUserId(store, auth.user.Id, fetcher);
 	return { integration, userId };
 }

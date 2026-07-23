@@ -19,12 +19,15 @@
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import { cn } from '$lib/utils.js';
 	import { PLAYBACK_SPEEDS } from './constants.js';
+	import { BITRATE_OPTIONS, RESOLUTION_OPTIONS, type PlaybackQuality } from '$lib/app/preferences';
 	import ControlButton from './ControlButton.svelte';
 	import { formatPlayerTime } from './playback.js';
-	import type { PlayerMediaStream } from './types.js';
+	import type { NextUpModel, PlayerMediaStream } from './types.js';
 
 	interface Props {
 		routeLabel: string;
+		title?: string;
+		secondary?: string;
 		isLoading: boolean;
 		isBuffering: boolean;
 		playbackError: string | null;
@@ -37,6 +40,10 @@
 		duration: number;
 		displayedSeekTime: number;
 		nextItemId: string | null;
+		nextUp: NextUpModel | null;
+		showNextUp: boolean;
+		nextCountdown: number | null;
+		quality: PlaybackQuality;
 		audioStreams: PlayerMediaStream[];
 		subtitleStreams: PlayerMediaStream[];
 		selectedAudioIndex: number | null;
@@ -54,6 +61,9 @@
 		onToggleMute: () => void;
 		onVolume: (value: number) => void;
 		onNext?: (itemId: string) => void | Promise<void>;
+		onDismissNext: () => void;
+		onSelectQuality: (quality: PlaybackQuality) => void;
+		onSaveDefaultQuality?: (quality: PlaybackQuality) => void;
 		onSelectAudio: (index: number) => void;
 		onSelectSubtitle: (index: number | null) => void;
 		onPlaybackSpeed: (value: string) => void;
@@ -63,6 +73,8 @@
 
 	let {
 		routeLabel,
+		title,
+		secondary,
 		isLoading,
 		isBuffering,
 		playbackError,
@@ -75,6 +87,10 @@
 		duration,
 		displayedSeekTime,
 		nextItemId,
+		nextUp,
+		showNextUp,
+		nextCountdown,
+		quality,
 		audioStreams,
 		subtitleStreams,
 		selectedAudioIndex,
@@ -92,6 +108,9 @@
 		onToggleMute,
 		onVolume,
 		onNext,
+		onDismissNext,
+		onSelectQuality,
+		onSaveDefaultQuality,
 		onSelectAudio,
 		onSelectSubtitle,
 		onPlaybackSpeed,
@@ -101,7 +120,9 @@
 </script>
 
 <Tooltip.Provider delayDuration={250}>
-	<div class="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-3">
+	<div
+		class="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-4 sm:p-6"
+	>
 		<ControlButton
 			label="Exit player"
 			icon={ArrowLeftIcon}
@@ -109,7 +130,12 @@
 			onclick={onExit}
 			class="pointer-events-auto"
 		/>
-		<Badge variant="secondary">{routeLabel}</Badge>
+		<div class="flex min-w-0 flex-col items-end gap-1 text-right drop-shadow-lg">
+			{#if title}<strong class="max-w-[60vw] truncate text-sm text-white">{title}</strong>{/if}
+			{#if secondary}<span class="max-w-[60vw] truncate text-xs text-white/70">{secondary}</span
+				>{/if}
+			<Badge variant="secondary">{routeLabel}</Badge>
+		</div>
 	</div>
 
 	{#if isLoading || isBuffering}
@@ -139,7 +165,7 @@
 	{#if segmentLabel}
 		<Button
 			variant="secondary"
-			class="absolute right-4 bottom-28 shadow-lg"
+			class="absolute right-4 bottom-36 rounded-full shadow-xl sm:right-8"
 			onclick={onSkipSegment}
 		>
 			<SkipForwardIcon data-icon="inline-start" />
@@ -147,9 +173,37 @@
 		</Button>
 	{/if}
 
+	{#if showNextUp && nextUp && nextItemId && onNext}
+		<aside
+			class="absolute bottom-36 left-4 w-[min(22rem,calc(100%-2rem))] overflow-hidden rounded-4xl border border-white/15 bg-black/70 p-3 text-white shadow-2xl backdrop-blur-xl sm:left-8"
+			aria-label="Next up"
+		>
+			<div class="flex gap-3">
+				{#if nextUp.imageUrl}<img
+						src={nextUp.imageUrl}
+						alt=""
+						class="aspect-video w-28 rounded-3xl object-cover"
+					/>{/if}
+				<div class="min-w-0 flex-1">
+					<p class="text-xs font-medium text-white/60">
+						Next up{nextCountdown !== null ? ` · ${nextCountdown}s` : ''}
+					</p>
+					<strong class="mt-1 block truncate text-sm">{nextUp.title}</strong>
+					{#if nextUp.secondary}<p class="truncate text-xs text-white/60">
+							{nextUp.secondary}
+						</p>{/if}
+				</div>
+			</div>
+			<div class="mt-3 flex gap-2">
+				<Button size="sm" onclick={() => onNext?.(nextItemId)}>Play now</Button>
+				<Button size="sm" variant="secondary" onclick={onDismissNext}>Not yet</Button>
+			</div>
+		</aside>
+	{/if}
+
 	<div
 		class={cn(
-			'absolute inset-x-0 bottom-0 flex flex-col gap-2 border-t bg-background/90 p-3 backdrop-blur transition-opacity',
+			'absolute inset-x-3 bottom-3 mx-auto flex max-w-6xl flex-col gap-2 rounded-[2rem] border border-white/10 bg-background/75 p-3 shadow-2xl backdrop-blur-xl transition-all sm:inset-x-6 sm:bottom-6 sm:p-4',
 			!controlsVisible && !paused && 'pointer-events-none opacity-0'
 		)}
 	>
@@ -159,8 +213,8 @@
 			class="h-1"
 			aria-label="Buffered playback progress"
 		/>
-		<div class="flex items-center gap-3">
-			<span class="min-w-11 text-right text-xs text-muted-foreground tabular-nums">
+		<div class="flex items-center gap-2 sm:gap-3">
+			<span class="hidden min-w-11 text-right text-xs text-muted-foreground tabular-nums sm:block">
 				{formatPlayerTime(displayedSeekTime)}
 			</span>
 			<Slider
@@ -174,7 +228,7 @@
 				onValueCommit={onSeekCommit}
 				aria-label="Seek"
 			/>
-			<span class="min-w-11 text-xs text-muted-foreground tabular-nums">
+			<span class="hidden min-w-11 text-xs text-muted-foreground tabular-nums sm:block">
 				{formatPlayerTime(duration)}
 			</span>
 		</div>
@@ -186,12 +240,14 @@
 					icon={paused ? PlayIcon : PauseIcon}
 					onclick={onTogglePlayback}
 					disabled={isLoading}
+					class="size-11 rounded-full"
 				/>
 				<ControlButton
 					label={muted ? 'Unmute' : 'Mute'}
 					icon={muted || volume === 0 ? VolumeXIcon : Volume2Icon}
 					onclick={onToggleMute}
 					pressed={muted}
+					class="hidden sm:inline-flex"
 				/>
 				<Slider
 					type="single"
@@ -273,6 +329,53 @@
 									</DropdownMenu.RadioItem>
 								{/each}
 							</DropdownMenu.RadioGroup>
+						</DropdownMenu.Group>
+						<DropdownMenu.Separator />
+						<DropdownMenu.Group>
+							<DropdownMenu.Label>Maximum resolution</DropdownMenu.Label>
+							<DropdownMenu.RadioGroup
+								value={String(quality.maxResolution)}
+								onValueChange={(value) =>
+									onSelectQuality({
+										...quality,
+										maxResolution:
+											value === 'auto'
+												? 'auto'
+												: (Number(value) as PlaybackQuality['maxResolution'])
+									})}
+							>
+								{#each RESOLUTION_OPTIONS as option (option)}
+									<DropdownMenu.RadioItem value={String(option)}
+										>{option === 'auto' ? 'Auto' : `${option}p`}</DropdownMenu.RadioItem
+									>
+								{/each}
+							</DropdownMenu.RadioGroup>
+						</DropdownMenu.Group>
+						<DropdownMenu.Separator />
+						<DropdownMenu.Group>
+							<DropdownMenu.Label>Maximum bitrate</DropdownMenu.Label>
+							<DropdownMenu.RadioGroup
+								value={String(quality.maxBitrateMbps)}
+								onValueChange={(value) =>
+									onSelectQuality({
+										...quality,
+										maxBitrateMbps:
+											value === 'auto'
+												? 'auto'
+												: (Number(value) as PlaybackQuality['maxBitrateMbps'])
+									})}
+							>
+								{#each BITRATE_OPTIONS as option (option)}
+									<DropdownMenu.RadioItem value={String(option)}
+										>{option === 'auto' ? 'Auto' : `${option} Mbps`}</DropdownMenu.RadioItem
+									>
+								{/each}
+							</DropdownMenu.RadioGroup>
+							{#if onSaveDefaultQuality}
+								<DropdownMenu.Item onclick={() => onSaveDefaultQuality?.(quality)}
+									>Make current quality default</DropdownMenu.Item
+								>
+							{/if}
 						</DropdownMenu.Group>
 					</DropdownMenu.Content>
 				</DropdownMenu.Root>

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import HeartIcon from '@lucide/svelte/icons/heart';
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
@@ -9,7 +9,9 @@
 	import { getUserLibraryApi } from '@jellyfin/sdk/lib/utils/api/user-library-api.js';
 	import {
 		loadItemDetail,
+		loadEpisodes,
 		loadSeriesDetail,
+		loadSeriesNextUp,
 		loadThemeSongs,
 		type SeriesDetail
 	} from '$lib/jellyfin';
@@ -23,7 +25,14 @@
 		posterForItem
 	} from '$lib/app/media';
 	import { session } from '$lib/app/session.svelte';
-	import { readCache, userCacheKey, writeCache } from '$lib/app/data-cache';
+	import {
+		itemEntityKey,
+		readCache,
+		readEntity,
+		upsertEntity,
+		userCacheKey,
+		writeCache
+	} from '$lib/app/data-cache';
 	import { themeAudio } from '$lib/app/theme-audio';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
@@ -42,6 +51,8 @@
 	let error = $state<string | null>(null);
 	let favorite = $state(false);
 	let themeUrl = $state<string | null>(null);
+	let playableEpisode = $state<BaseItemDto | null>(null);
+	let loadingEpisodes = $state(false);
 	let loadGeneration = 0;
 	let retryThemeOnInteraction: (() => void) | null = null;
 	let detailCacheKey = '';
@@ -64,15 +75,7 @@
 	let playable = $derived.by(() => {
 		if (!item) return null;
 		if (item.Type !== 'Series') return item;
-		const allEpisodes = series?.seasons.flatMap((season) =>
-			season.Id ? (series?.episodesBySeason[season.Id] ?? []) : []
-		);
-		return (
-			allEpisodes?.find((episode) => (episode.UserData?.PlaybackPositionTicks ?? 0) > 0) ??
-			allEpisodes?.find((episode) => !episode.UserData?.Played) ??
-			allEpisodes?.[0] ??
-			null
-		);
+		return playableEpisode;
 	});
 
 	function applyDetail(snapshot: DetailCacheData) {
@@ -88,11 +91,20 @@
 		const userId = session.user?.id;
 		if (!api || !userId || !itemId) return;
 		const generation = ++loadGeneration;
+		themeAudio.fadeAndStop();
+		playableEpisode = null;
+		series = null;
+		selectedSeason = '';
+		themeUrl = null;
+		favorite = false;
+		error = null;
+		loadingEpisodes = false;
 		detailCacheKey = userCacheKey(
 			session.bootstrap?.jellyfin?.server.id,
 			userId,
 			`detail:${itemId}`
 		);
+		const entityKey = itemEntityKey(session.bootstrap?.jellyfin?.server.id, userId, itemId);
 		const cached = readCache<DetailCacheData>(detailCacheKey, DETAIL_CACHE_MS);
 		if (cached) {
 			applyDetail(cached.value);
@@ -100,34 +112,74 @@
 			if (!cached.stale) return;
 		}
 		if (!cached) {
+			const previewEntity = readEntity<BaseItemDto>(entityKey);
+			item = previewEntity?.value ?? null;
+			favorite = previewEntity?.value.UserData?.IsFavorite === true;
 			loading = true;
-			error = null;
-			item = null;
-			series = null;
-			selectedSeason = '';
-			themeUrl = null;
 		}
 		try {
 			const detail = await loadItemDetail(api, userId, itemId);
-			let seriesDetail: SeriesDetail | null = null;
-			if (detail.Type === 'Series' && detail.Id) {
-				seriesDetail = await loadSeriesDetail(api, userId, detail.Id);
-			}
-			let nextThemeUrl: string | null = null;
-			if (detail.Id) {
-				const songs = await loadThemeSongs(api, detail.Id, userId).catch(() => []);
-				nextThemeUrl = songs[0]?.streamUrl ?? null;
-			}
 			if (generation !== loadGeneration) return;
-			const snapshot = { item: detail, series: seriesDetail, themeUrl: nextThemeUrl };
+			const snapshot = { item: detail, series: null, themeUrl: null };
 			applyDetail(snapshot);
+			upsertEntity(entityKey, detail);
 			writeCache(detailCacheKey, snapshot);
+			loading = false;
+
+			// Everything below this point enriches the detail page. It must not hide
+			// an already usable hero behind a full-page skeleton.
+			if (detail.Type === 'Series' && detail.Id) {
+				void Promise.all([
+					loadSeriesDetail(api, userId, detail.Id),
+					loadSeriesNextUp(api, userId, detail.Id)
+				]).then(([seriesDetail, nextEpisode]) => {
+					if (generation !== loadGeneration || !item) return;
+					series = seriesDetail;
+					selectedSeason = seriesDetail.seasons.find((season) => season.Id)?.Id ?? '';
+					playableEpisode = nextEpisode;
+					writeCache(detailCacheKey, { item, series, themeUrl } satisfies DetailCacheData);
+				});
+			}
+			if (detail.Id) {
+				void loadThemeSongs(api, detail.Id, userId)
+					.then((songs) => {
+						if (generation !== loadGeneration || !item) return;
+						themeUrl = songs[0]?.streamUrl ?? null;
+						writeCache(detailCacheKey, { item, series, themeUrl } satisfies DetailCacheData);
+					})
+					.catch(() => undefined);
+			}
 		} catch (reason) {
 			if (!cached && generation === loadGeneration) {
 				error = reason instanceof Error ? reason.message : 'This item could not be loaded.';
 			}
 		} finally {
-			if (!cached && generation === loadGeneration) loading = false;
+			if (generation === loadGeneration) loading = false;
+		}
+	}
+
+	async function loadSelectedSeason(seriesId: string, seasonId: string) {
+		if (!session.api || !session.user?.id || !series || series.episodesBySeason[seasonId]) return;
+		loadingEpisodes = true;
+		try {
+			const loaded = await loadEpisodes(session.api, session.user.id, seriesId, seasonId);
+			series = {
+				...series,
+				episodesBySeason: { ...series.episodesBySeason, [seasonId]: loaded }
+			};
+			for (const episode of loaded) {
+				if (episode.Id)
+					upsertEntity(
+						itemEntityKey(session.bootstrap?.jellyfin?.server.id, session.user.id, episode.Id),
+						episode
+					);
+			}
+			if (detailCacheKey && item)
+				writeCache(detailCacheKey, { item, series, themeUrl } satisfies DetailCacheData);
+		} catch {
+			toast.error('Episodes for this season could not be loaded.');
+		} finally {
+			loadingEpisodes = false;
 		}
 	}
 
@@ -142,6 +194,11 @@
 			}
 			favorite = !favorite;
 			if (item?.UserData) item = { ...item, UserData: { ...item.UserData, IsFavorite: favorite } };
+			if (item?.Id)
+				upsertEntity(
+					itemEntityKey(session.bootstrap?.jellyfin?.server.id, session.user.id, item.Id),
+					item
+				);
 			if (detailCacheKey && item)
 				writeCache(detailCacheKey, { item, series, themeUrl } satisfies DetailCacheData);
 			toast.success(favorite ? 'Added to favorites.' : 'Removed from favorites.');
@@ -167,13 +224,25 @@
 
 	$effect(() => {
 		const itemId = page.params.id;
-		if (itemId) void load(itemId);
+		untrack(() => {
+			if (itemId) void load(itemId);
+		});
+	});
+
+	$effect(() => {
+		const seriesId = item?.Type === 'Series' ? item.Id : undefined;
+		const seasonId = selectedSeason;
+		untrack(() => {
+			if (seriesId && seasonId) void loadSelectedSeason(seriesId, seasonId);
+		});
 	});
 
 	$effect(() => {
 		const url = themeUrl;
-		if (session.themeAudioEnabled && url) queueMicrotask(() => void playTheme(url));
-		else themeAudio.fadeAndStop();
+		untrack(() => {
+			if (session.themeAudioEnabled && url) queueMicrotask(() => void playTheme(url));
+			else themeAudio.fadeAndStop();
+		});
 	});
 
 	onDestroy(() => {
@@ -185,7 +254,7 @@
 
 <svelte:head><title>{item?.Name ?? 'Details'} · Shayfin</title></svelte:head>
 
-{#if loading}
+{#if loading && !item}
 	<div class="flex flex-col gap-8">
 		<div
 			class="relative left-1/2 -mt-20 h-[clamp(28rem,62svh,40rem)] w-[100dvw] -translate-x-1/2 overflow-hidden bg-background"
@@ -248,16 +317,18 @@
 			</Button>
 		{/snippet}
 
-		<MediaHero
-			title={item.Name ?? 'Untitled'}
-			{backdropUrl}
-			{logoUrl}
-			description={item.Overview}
-			tagline={item.Taglines?.[0]}
-			headingId="item-title"
-			{metadata}
-			{actions}
-		/>
+		<div>
+			<MediaHero
+				title={item.Name ?? 'Untitled'}
+				{backdropUrl}
+				{logoUrl}
+				description={item.Overview}
+				tagline={item.Taglines?.[0]}
+				headingId="item-title"
+				{metadata}
+				{actions}
+			/>
+		</div>
 
 		{#if series && series.seasons.length > 0}
 			<section class="space-y-4" aria-labelledby="episodes-heading">
@@ -273,42 +344,53 @@
 						</Tabs.List>
 					</Tabs.Root>
 				</div>
-				<div class="grid gap-3 lg:grid-cols-2">
-					{#each episodes as episode (episode.Id)}
-						<a
-							href={episode.Id ? resolve('/(app)/item/[id]', { id: episode.Id }) : '#'}
-							class="group flex min-w-0 gap-4 rounded-4xl border border-border bg-card p-3 transition-colors hover:bg-accent"
-						>
-							<div class="aspect-video w-36 shrink-0 overflow-hidden rounded-3xl bg-muted sm:w-44">
-								{#if session.api && imageForItem(session.api, episode, 420)}<img
-										src={imageForItem(session.api, episode, 420)}
-										alt=""
-										class="size-full object-cover"
-									/>{/if}
-							</div>
-							<div class="min-w-0 flex-1 py-1">
-								<strong class="block truncate"
-									>{episode.IndexNumber != null
-										? `${episode.IndexNumber}. `
-										: ''}{episode.Name}</strong
+				{#if loadingEpisodes && episodes.length === 0}
+					<div class="grid gap-3 lg:grid-cols-2">
+						{#each [0, 1, 2, 3] as index (index)}
+							<Skeleton class="h-32 rounded-4xl" />
+						{/each}
+					</div>
+				{:else}<div class="grid gap-3 lg:grid-cols-2">
+						{#each episodes as episode (episode.Id)}
+							<a
+								href={episode.Id ? resolve('/(app)/item/[id]', { id: episode.Id }) : '#'}
+								class="group flex min-w-0 gap-4 rounded-4xl border border-border bg-card p-3 transition-colors hover:bg-accent"
+							>
+								<div
+									class="aspect-video w-36 shrink-0 overflow-hidden rounded-3xl bg-muted sm:w-44"
 								>
-								<small class="text-muted-foreground"
-									>{itemSecondary(episode)}{formatRuntime(episode.RunTimeTicks)
-										? ` · ${formatRuntime(episode.RunTimeTicks)}`
-										: ''}</small
-								>
-								{#if episode.Overview}<p class="mt-2 line-clamp-2 text-sm text-muted-foreground">
-										{episode.Overview}
-									</p>{/if}
-								{#if itemProgress(episode) !== undefined}<div
-										class="mt-3 h-1 overflow-hidden rounded-full bg-muted"
+									{#if session.api && imageForItem(session.api, episode, 420)}<img
+											src={imageForItem(session.api, episode, 420)}
+											alt=""
+											class="size-full object-cover"
+										/>{/if}
+								</div>
+								<div class="min-w-0 flex-1 py-1">
+									<strong class="block truncate"
+										>{episode.IndexNumber != null
+											? `${episode.IndexNumber}. `
+											: ''}{episode.Name}</strong
 									>
-										<div class="h-full bg-primary" style={`width:${itemProgress(episode)}%`}></div>
-									</div>{/if}
-							</div>
-						</a>
-					{/each}
-				</div>
+									<small class="text-muted-foreground"
+										>{itemSecondary(episode)}{formatRuntime(episode.RunTimeTicks)
+											? ` · ${formatRuntime(episode.RunTimeTicks)}`
+											: ''}</small
+									>
+									{#if episode.Overview}<p class="mt-2 line-clamp-2 text-sm text-muted-foreground">
+											{episode.Overview}
+										</p>{/if}
+									{#if itemProgress(episode) !== undefined}<div
+											class="mt-3 h-1 overflow-hidden rounded-full bg-muted"
+										>
+											<div
+												class="h-full bg-primary"
+												style={`width:${itemProgress(episode)}%`}
+											></div>
+										</div>{/if}
+								</div>
+							</a>
+						{/each}
+					</div>{/if}
 			</section>
 		{/if}
 

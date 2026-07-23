@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
 	ACTIVE_SERVER_KEY,
 	BROWSER_DEVICE_KEY,
@@ -39,6 +39,16 @@ describe('Jellyfin storage', () => {
 		expect(namespaced).toBe(pending);
 		expect(storage.getItem(BROWSER_DEVICE_KEY)).toBe(pending);
 		expect(storage.getItem(storageKeysForServer('server-a').deviceId)).toBe(pending);
+	});
+
+	it('creates a device id when crypto.randomUUID is unavailable', () => {
+		vi.stubGlobal('crypto', {});
+		try {
+			const deviceId = getOrCreateDeviceId(undefined, new MemoryStorage());
+			expect(deviceId).toMatch(/^shayfin-/);
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 
 	it('persists and restores credentials without retaining them on logout', () => {

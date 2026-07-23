@@ -117,7 +117,10 @@ export function applyHomeScreenSettings(
 	settings?: HomeScreenUserSettings
 ): HomeScreenSectionDefinition[] {
 	if (!settings) return [...sections].sort((a, b) => a.order - b.order);
-	const enabled = new Set(settings.enabledSections);
+	const enabled = new Set(
+		settings.enabledSections.length ? settings.enabledSections : settings.defaultEnabledSections
+	);
+	if (!enabled.size) return [...sections].sort((a, b) => a.order - b.order);
 	return sections.filter((section) => enabled.has(section.id)).sort((a, b) => a.order - b.order);
 }
 
@@ -172,7 +175,14 @@ export class HomeScreenSectionsAdapter {
 	}
 
 	async loadHome(userId: string, language?: string): Promise<CapabilityState<HomeSectionModel[]>> {
-		const sectionsResult = await this.getSections(userId, language);
+		const [metadata, sectionsResult, settings] = await Promise.all([
+			this.getMetadata(),
+			this.getSections(userId, language),
+			this.getUserSettings(userId)
+		]);
+		if (metadata.status === 'available' && metadata.data?.enabled === false) {
+			return { status: 'unavailable', message: 'Home Screen Sections is disabled' };
+		}
 		if (sectionsResult.status !== 'available' || !sectionsResult.data) {
 			return {
 				status: sectionsResult.status,
@@ -181,8 +191,9 @@ export class HomeScreenSectionsAdapter {
 			};
 		}
 
+		const effectiveSections = applyHomeScreenSettings(sectionsResult.data, settings.data);
 		const content = await Promise.all(
-			sectionsResult.data.map(async (section) => ({
+			effectiveSections.map(async (section) => ({
 				section,
 				result: await this.getSectionContent(section, userId, language)
 			}))
@@ -195,7 +206,10 @@ export class HomeScreenSectionsAdapter {
 							title: section.title,
 							variant: pluginVariant(section),
 							order: section.order,
-							items: result.data,
+							items: result.data.slice(
+								0,
+								section.limit || metadata.data?.resultsPerPage || result.data.length
+							),
 							additionalData: section.additionalData,
 							displayTitleText: section.displayTitleText,
 							showDetailsMenu: section.showDetailsMenu
@@ -203,7 +217,10 @@ export class HomeScreenSectionsAdapter {
 					]
 				: []
 		);
-		const degraded = content.some(({ result }) => result.status !== 'available');
+		const degraded =
+			content.some(({ result }) => result.status !== 'available') ||
+			metadata.status === 'degraded' ||
+			settings.status === 'degraded';
 		return {
 			status: degraded ? 'degraded' : 'available',
 			data: models,

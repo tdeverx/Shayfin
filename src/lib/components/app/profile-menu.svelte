@@ -7,6 +7,8 @@
 	import * as Avatar from '$lib/components/ui/avatar';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import type { AppUser } from '$lib/app/models';
+	import { session } from '$lib/app/session.svelte';
+	import { pluginEnabled } from '$lib/app/plugin-capabilities';
 
 	let {
 		user,
@@ -43,14 +45,14 @@
 	</DropdownMenu.Trigger>
 	<DropdownMenu.Content align="start" class="w-44">
 		<DropdownMenu.Group>
-			<DropdownMenu.Item>
-				{#snippet child({ props })}
-					<a href={resolve('/profile')} {...props}>
-						<UserIcon />
-						Profile
-					</a>
-				{/snippet}
-			</DropdownMenu.Item>
+			{#if pluginEnabled(session.bootstrap, 'achievementBadges')}<DropdownMenu.Item>
+					{#snippet child({ props })}
+						<a href={resolve('/profile')} {...props}>
+							<UserIcon />
+							Profile
+						</a>
+					{/snippet}
+				</DropdownMenu.Item>{/if}
 			<DropdownMenu.Item>
 				{#snippet child({ props })}
 					<a href={resolve('/achievements')} {...props}>

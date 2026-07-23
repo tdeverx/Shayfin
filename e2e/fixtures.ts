@@ -17,6 +17,8 @@ export interface MockSearchResult {
 export interface MockDownload {
 	id: string;
 	service: 'sonarr' | 'radarr';
+	instanceId?: string;
+	instanceLabel?: string;
 	mediaType: 'series' | 'movie';
 	title: string;
 	providerIds: { tmdbId?: number; tvdbId?: number };
@@ -133,6 +135,12 @@ export async function mockBootstrap(page: Page, configured: boolean) {
 						jellyfin: {
 							publicUrl: 'http://127.0.0.1:4173/jellyfin',
 							server: { id: SERVER_ID, name: 'Living Room', version: '10.11.11' }
+						},
+						plugins: {
+							homeScreenSections: { enabled: true },
+							mediaBarEnhanced: { enabled: true },
+							achievementBadges: { enabled: true, unlockNotifications: true },
+							getAvatar: { enabled: true }
 						}
 					}
 				: { configured: false, version: '0.0.1-e2e' }
@@ -199,11 +207,21 @@ export async function mockAuthenticatedApp(
 		downloadAuthorizations?.push(route.request().headers().authorization ?? null);
 		return json(route, {
 			downloads,
-			capabilities: {
-				seerr: { status: 'available' },
-				sonarr: { status: 'available' },
-				radarr: { status: 'available' }
-			}
+			capabilities: [
+				{ service: 'seerr', status: 'available' },
+				{
+					service: 'sonarr',
+					instanceId: 'sonarr-main',
+					instanceLabel: 'Sonarr main',
+					status: 'available'
+				},
+				{
+					service: 'radarr',
+					instanceId: 'radarr-main',
+					instanceLabel: 'Radarr main',
+					status: 'available'
+				}
+			]
 		});
 	});
 	await page.route('**/api/external/search**', (route) =>
@@ -243,8 +261,8 @@ export async function mockAuthenticatedApp(
 			},
 			integrations: {
 				seerr: { enabled: false, url: '', apiKeyConfigured: false, mappedUsers: 0 },
-				sonarr: { enabled: false, url: '', apiKeyConfigured: false },
-				radarr: { enabled: false, url: '', apiKeyConfigured: false }
+				sonarr: [],
+				radarr: []
 			},
 			plugins: {
 				homeScreenSections: { enabled: true },
@@ -254,6 +272,15 @@ export async function mockAuthenticatedApp(
 			}
 		} satisfies Record<string, unknown>);
 	await page.route('**/api/admin/settings', (route) => json(route, maskedSettings));
+	await page.route('**/api/admin/seerr', (route) =>
+		json(route, (maskedSettings as { integrations: { seerr: unknown } }).integrations.seerr)
+	);
+	await page.route('**/api/admin/servarr/sonarr', (route) =>
+		json(route, (maskedSettings as { integrations: { sonarr: unknown } }).integrations.sonarr)
+	);
+	await page.route('**/api/admin/servarr/radarr', (route) =>
+		json(route, (maskedSettings as { integrations: { radarr: unknown } }).integrations.radarr)
+	);
 
 	await page.route('**/jellyfin/**', async (route) => {
 		const request = route.request();
@@ -529,7 +556,11 @@ export async function mockAuthenticatedApp(
 				return;
 			}
 
-			const featured = query.get('parentid') === 'view-series' ? featuredSeries : featuredMovie;
+			const featured = sortBy.includes('random')
+				? featuredMovie
+				: query.get('includeitemtypes')?.toLowerCase().includes('series')
+					? featuredSeries
+					: featuredMovie;
 			await json(route, { Items: [featured], TotalRecordCount: 1 });
 			return;
 		}

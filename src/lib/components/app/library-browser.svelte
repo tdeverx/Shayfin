@@ -12,7 +12,6 @@
 	import { SortOrder } from '@jellyfin/sdk/lib/generated-client/models/sort-order.js';
 	import { getItemsApi } from '@jellyfin/sdk/lib/utils/api/items-api.js';
 	import { toMediaCard } from '$lib/app/media';
-	import { readCache, userCacheKey, writeCache } from '$lib/app/data-cache';
 	import { session } from '$lib/app/session.svelte';
 	import { headerContext } from '$lib/app/header-context.svelte';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
@@ -24,7 +23,14 @@
 	import * as Sheet from '$lib/components/ui/sheet';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import * as ToggleGroup from '$lib/components/ui/toggle-group';
-	import { loadSupportedUserViews } from '$lib/jellyfin';
+	import {
+		itemEntityKey,
+		readEntity,
+		readQuery,
+		upsertEntity,
+		userCacheKey,
+		writeQuery
+	} from '$lib/app/data-cache';
 	import MediaCard from './media-card.svelte';
 
 	type LibraryKind = 'movies' | 'series';
@@ -72,35 +78,17 @@
 	let filter = $state<LibraryFilter>('all');
 	let sort = $state<LibrarySort>('title');
 	const LIBRARY_CACHE_MS = 5 * 60_000;
-	let libraryCacheKey = '';
-
-	let filteredItems = $derived.by(() => {
-		const needle = query.trim().toLocaleLowerCase();
-		return items
-			.filter((item) => {
-				if (filter === 'unplayed' && item.UserData?.Played === true) return false;
-				if (filter === 'favorites' && item.UserData?.IsFavorite !== true) return false;
-				if (!needle) return true;
-				return (
-					item.Name?.toLocaleLowerCase().includes(needle) === true ||
-					item.Genres?.some((genre) => genre.toLocaleLowerCase().includes(needle)) === true ||
-					String(item.ProductionYear ?? '').includes(needle)
-				);
-			})
-			.toSorted((left, right) => {
-				if (sort === 'recent') {
-					return Date.parse(right.DateCreated ?? '') - Date.parse(left.DateCreated ?? '');
-				}
-				if (sort === 'year') {
-					return (right.ProductionYear ?? 0) - (left.ProductionYear ?? 0);
-				}
-				return (left.SortName ?? left.Name ?? '').localeCompare(right.SortName ?? right.Name ?? '');
-			});
-	});
+	const PAGE_SIZE = 60;
+	let totalRecordCount = $state<number | undefined>();
+	let hasMore = $state(false);
+	let loadingMore = $state(false);
+	let mounted = $state(false);
+	let requestGeneration = 0;
+	let pageIndex = 0;
 
 	let cards = $derived(
 		session.api
-			? filteredItems
+			? items
 					.map((item) => toMediaCard(session.api!, item, 'portrait'))
 					.filter((item) => item !== null)
 			: []
@@ -108,9 +96,9 @@
 	let countDescription = $derived(
 		loading || error
 			? `Refine your ${config.countLabel}.`
-			: cards.length === items.length
-				? `${items.length} ${config.countLabel}`
-				: `${cards.length} of ${items.length} ${config.countLabel}`
+			: totalRecordCount !== undefined
+				? `${cards.length} of ${totalRecordCount} ${config.countLabel}`
+				: `${cards.length} ${config.countLabel}`
 	);
 
 	$effect(() => {
@@ -122,72 +110,123 @@
 	});
 
 	onMount(async () => {
-		if (!session.user) await session.initialize();
-		const userId = session.user?.id;
-		if (!userId) return void loadItems();
-		libraryCacheKey = userCacheKey(
-			session.bootstrap?.jellyfin?.server.id,
-			userId,
-			`library:${kind}`
-		);
-		const cached = readCache<BaseItemDto[]>(libraryCacheKey, LIBRARY_CACHE_MS);
-		if (cached) {
-			items = cached.value;
-			loading = false;
-		}
-		if (!cached || cached.stale) await loadItems(Boolean(cached));
+		await session.initialize();
+		mounted = true;
 	});
 
-	async function loadItems(background = false) {
-		if (!background) loading = true;
+	$effect(() => {
+		if (!mounted) return;
+		const signature = `${query.trim()}:${filter}:${sort}`;
+		const timer = setTimeout(() => void resetAndLoad(signature), query.trim() ? 250 : 0);
+		return () => clearTimeout(timer);
+	});
+
+	function currentQueryKey(userId: string): string {
+		return userCacheKey(
+			session.bootstrap?.jellyfin?.server.id,
+			userId,
+			`library:${kind}:${query.trim().toLocaleLowerCase()}:${filter}:${sort}`
+		);
+	}
+
+	async function resetAndLoad(signature = `${query.trim()}:${filter}:${sort}`) {
+		if (signature !== `${query.trim()}:${filter}:${sort}`) return;
+		const userId = session.user?.id;
+		if (!userId) return void loadPage(true);
+		const cacheKey = currentQueryKey(userId);
+		const cached = readQuery(cacheKey, LIBRARY_CACHE_MS);
+		if (cached) {
+			items = cached.value.itemIds.flatMap((id) => {
+				const entity = readEntity<BaseItemDto>(
+					itemEntityKey(session.bootstrap?.jellyfin?.server.id, userId, id)
+				);
+				return entity ? [entity.value] : [];
+			});
+			totalRecordCount = cached.value.totalRecordCount;
+			hasMore = cached.value.hasMore;
+			loading = false;
+			pageIndex = Math.ceil(cached.value.startIndex / PAGE_SIZE);
+			if (!cached.stale) return;
+		}
+		await loadPage(true, Boolean(cached));
+	}
+
+	async function loadPage(reset = false, background = false) {
+		if (!reset && (loadingMore || !hasMore)) return;
+		if (reset) {
+			requestGeneration += 1;
+			pageIndex = 0;
+			loadingMore = false;
+			if (!background) loading = true;
+		} else loadingMore = true;
+		const generation = requestGeneration;
 		error = null;
 		try {
 			await session.initialize();
 			const api = session.api;
 			const userId = session.user?.id;
 			if (!api || !userId) throw new Error('Your Jellyfin session is not available.');
-			libraryCacheKey ||= userCacheKey(
-				session.bootstrap?.jellyfin?.server.id,
+			const sortBy =
+				sort === 'recent'
+					? ItemSortBy.DateCreated
+					: sort === 'year'
+						? ItemSortBy.ProductionYear
+						: ItemSortBy.SortName;
+			const response = await getItemsApi(api).getItems({
 				userId,
-				`library:${kind}`
-			);
-
-			const view = (await loadSupportedUserViews(api, userId)).find(
-				(candidate) => candidate.type === config.viewType
-			);
-			if (!view) {
-				items = [];
-				writeCache(libraryCacheKey, items);
-				return;
-			}
-
-			const responses = await Promise.all(
-				view.libraryIds.map((parentId) =>
-					getItemsApi(api).getItems({
-						userId,
-						parentId,
-						recursive: true,
-						includeItemTypes: [config.itemType],
-						fields: [ItemFields.DateCreated, ItemFields.Genres, ItemFields.ProviderIds],
-						sortBy: [ItemSortBy.SortName],
-						sortOrder: [SortOrder.Ascending],
-						enableUserData: true,
-						enableImages: true,
-						imageTypeLimit: 2
-					})
-				)
-			);
+				recursive: true,
+				includeItemTypes: [config.itemType],
+				fields: [ItemFields.DateCreated, ItemFields.Genres, ItemFields.ProviderIds],
+				sortBy: [sortBy],
+				sortOrder: [sort === 'title' ? SortOrder.Ascending : SortOrder.Descending],
+				searchTerm: query.trim() || undefined,
+				isPlayed: filter === 'unplayed' ? false : undefined,
+				isFavorite: filter === 'favorites' ? true : undefined,
+				startIndex: pageIndex * PAGE_SIZE,
+				limit: PAGE_SIZE,
+				enableUserData: true,
+				enableImages: true,
+				imageTypeLimit: 2
+			});
+			if (generation !== requestGeneration) return;
+			const page = response.data.Items ?? [];
 			const byId = new SvelteMap<string, BaseItemDto>();
-			for (const item of responses.flatMap((response) => response.data.Items ?? [])) {
-				if (item.Id) byId.set(item.Id, item);
+			for (const item of reset ? [] : items) if (item.Id) byId.set(item.Id, item);
+			for (const item of page) {
+				if (!item.Id) continue;
+				byId.set(item.Id, item);
+				upsertEntity(itemEntityKey(session.bootstrap?.jellyfin?.server.id, userId, item.Id), item);
 			}
 			items = [...byId.values()];
-			writeCache(libraryCacheKey, items);
+			pageIndex += 1;
+			totalRecordCount = response.data.TotalRecordCount ?? page.length;
+			hasMore = items.length < totalRecordCount;
+			writeQuery(currentQueryKey(userId), {
+				itemIds: items.flatMap((item) => (item.Id ? [item.Id] : [])),
+				startIndex: pageIndex * PAGE_SIZE,
+				totalRecordCount,
+				hasMore
+			});
 		} catch (reason) {
 			if (!background) error = reason instanceof Error ? reason.message : config.loadError;
 		} finally {
-			if (!background) loading = false;
+			if (generation === requestGeneration) {
+				if (reset && !background) loading = false;
+				loadingMore = false;
+			}
 		}
+	}
+
+	function observeMore(node: HTMLElement) {
+		if (typeof IntersectionObserver === 'undefined') return;
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) void loadPage();
+			},
+			{ rootMargin: '400px' }
+		);
+		observer.observe(node);
+		return { destroy: () => observer.disconnect() };
 	}
 
 	function chooseFilter(value: unknown) {
@@ -281,7 +320,7 @@
 			<AlertTitle>{config.unavailable}</AlertTitle>
 			<AlertDescription class="flex flex-wrap items-center justify-between gap-3">
 				<span>{error}</span>
-				<Button variant="outline" size="sm" onclick={() => loadItems()}>
+				<Button variant="outline" size="sm" onclick={() => resetAndLoad()}>
 					<RotateCcwIcon data-icon="inline-start" />
 					Try again
 				</Button>
@@ -291,7 +330,7 @@
 		<!-- Filters are intentionally hosted in the context-aware header Sheet. -->
 	{/if}
 
-	{#if loading}
+	{#if loading && cards.length === 0}
 		<div
 			class="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
 		>
@@ -309,9 +348,13 @@
 				<Empty.Media variant="icon">
 					{#if kind === 'movies'}<FilmIcon />{:else}<TvIcon />{/if}
 				</Empty.Media>
-				<Empty.Title>{items.length ? config.emptyMatch : config.emptyLibrary}</Empty.Title>
+				<Empty.Title
+					>{query.trim() || filter !== 'all' ? config.emptyMatch : config.emptyLibrary}</Empty.Title
+				>
 				<Empty.Description>
-					{items.length ? 'Try a different title, genre, or filter.' : config.emptyDescription}
+					{query.trim() || filter !== 'all'
+						? 'Try a different title, genre, or filter.'
+						: config.emptyDescription}
 				</Empty.Description>
 			</Empty.Header>
 			{#if items.length}
@@ -328,5 +371,12 @@
 				<MediaCard {item} variant="portrait" />
 			{/each}
 		</div>
+		{#if hasMore}
+			<div use:observeMore class="flex min-h-16 items-center justify-center">
+				<Button variant="outline" disabled={loadingMore} onclick={() => loadPage()}>
+					{loadingMore ? 'Loading…' : 'Load more'}
+				</Button>
+			</div>
+		{/if}
 	{/if}
 </div>

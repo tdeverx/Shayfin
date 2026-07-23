@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import BadgeCheckIcon from '@lucide/svelte/icons/badge-check';
@@ -9,6 +10,7 @@
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import { toast } from 'svelte-sonner';
 	import { session } from '$lib/app/session.svelte';
+	import { pluginEnabled } from '$lib/app/plugin-capabilities';
 	import { readCache, userCacheKey, writeCache } from '$lib/app/data-cache';
 	import { toMediaCard } from '$lib/app/media';
 	import type { MediaCardModel } from '$lib/app/models';
@@ -23,12 +25,12 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Empty from '$lib/components/ui/empty';
 	import { Skeleton } from '$lib/components/ui/skeleton';
-	import * as Tabs from '$lib/components/ui/tabs';
 	import {
 		AchievementBadgesAdapter,
 		GetAvatarAdapter,
 		loadProfileMedia,
 		type AchievementBadge,
+		type AchievementFriend,
 		type AvatarOption
 	} from '$lib/jellyfin';
 	import type { NormalizedMediaRequest } from '$lib/server/contracts';
@@ -40,9 +42,11 @@
 	let requests = $state<NormalizedMediaRequest[]>([]);
 	let requestsAvailable = $state(false);
 	let equippedBadges = $state<AchievementBadge[]>([]);
+	let friends = $state<AchievementFriend[]>([]);
 	let avatars = $state<AvatarOption[]>([]);
 	let avatarAvailable = $state(false);
 	let avatarDialogOpen = $state(false);
+	let loadingAvatars = $state(false);
 	let currentAvatarUrl = $state<string | undefined>(undefined);
 	let changingAvatar = $state<string | null>(null);
 	let avatarAdapter: GetAvatarAdapter | null = null;
@@ -54,6 +58,7 @@
 		requests: NormalizedMediaRequest[];
 		requestsAvailable: boolean;
 		equippedBadges: AchievementBadge[];
+		friends: AchievementFriend[];
 		avatars: AvatarOption[];
 		avatarAvailable: boolean;
 		currentAvatarUrl?: string;
@@ -62,6 +67,8 @@
 	const PROFILE_CACHE_MS = 2 * 60_000;
 
 	let lastWatched = $derived(recentlyPlayed[0]);
+	let favoriteMovies = $derived(favorites.filter((item) => item.kind === 'movie'));
+	let favoriteShows = $derived(favorites.filter((item) => item.kind === 'series'));
 	let avatarCategories = $derived.by(() => {
 		const groups = new SvelteMap<string, AvatarOption[]>();
 		for (const avatar of avatars) {
@@ -92,6 +99,7 @@
 			requests,
 			requestsAvailable,
 			equippedBadges,
+			friends,
 			avatars,
 			avatarAvailable,
 			currentAvatarUrl
@@ -104,6 +112,7 @@
 		requests = snapshot.requests;
 		requestsAvailable = snapshot.requestsAvailable;
 		equippedBadges = snapshot.equippedBadges;
+		friends = snapshot.friends ?? [];
 		avatars = snapshot.avatars;
 		avatarAvailable = snapshot.avatarAvailable;
 		currentAvatarUrl = snapshot.currentAvatarUrl;
@@ -139,78 +148,114 @@
 			if (!api || !user) throw new Error('Your Jellyfin session is not available.');
 
 			currentAvatarUrl = authenticatedImage(user.imageUrl);
-			const achievementsEnabled = session.bootstrap?.plugins?.achievementBadges.enabled !== false;
-			const avatarEnabled = session.bootstrap?.plugins?.getAvatar.enabled !== false;
+			const achievementsEnabled = pluginEnabled(session.bootstrap, 'achievementBadges');
+			const avatarEnabled = pluginEnabled(session.bootstrap, 'getAvatar');
 			const achievementsAdapter = achievementsEnabled ? new AchievementBadgesAdapter(api) : null;
 			avatarAdapter = avatarEnabled ? new GetAvatarAdapter(api) : null;
 			profileCacheKey ||= userCacheKey(session.bootstrap?.jellyfin?.server.id, user.id, 'profile');
-			const [mediaResult, requestResult, achievementResult, avatarResult, currentAvatarResult] =
-				await Promise.allSettled([
-					loadProfileMedia(api, user.id),
-					loadRequests(),
-					achievementsAdapter
-						? achievementsAdapter.getEquipped(user.id, navigator.language)
-						: Promise.resolve({ status: 'unavailable' as const, data: undefined }),
-					avatarAdapter
-						? avatarAdapter.list()
-						: Promise.resolve({ status: 'unavailable' as const, data: undefined }),
-					avatarAdapter
-						? avatarAdapter.current(user.id)
-						: Promise.resolve({ status: 'unavailable' as const, data: undefined })
-				]);
-
-			if (mediaResult.status === 'rejected') throw mediaResult.reason;
-			recentlyPlayed = mediaResult.value.recentlyPlayed
+			const media = await loadProfileMedia(api, user.id);
+			recentlyPlayed = media.recentlyPlayed
 				.map((item) => toMediaCard(api, item, 'landscape'))
 				.filter((item) => item !== null);
-			favorites = mediaResult.value.favorites
+			favorites = media.favorites
 				.map((item) => toMediaCard(api, item, 'portrait'))
 				.filter((item) => item !== null);
-
-			if (requestResult.status === 'fulfilled' && requestResult.value !== null) {
-				requestsAvailable = true;
-				requests = requestResult.value;
-			} else {
-				requestsAvailable = false;
-				requests = [];
-			}
-
-			equippedBadges =
-				achievementResult.status === 'fulfilled' &&
-				achievementResult.value.status === 'available' &&
-				achievementResult.value.data
-					? achievementResult.value.data
-					: [];
-
-			if (
-				avatarResult.status === 'fulfilled' &&
-				avatarResult.value.status === 'available' &&
-				avatarResult.value.data
-			) {
-				avatarAvailable = true;
-				avatars = avatarResult.value.data.map((avatar) => ({
-					...avatar,
-					imageUrl: authenticatedImage(avatar.imageUrl) ?? avatar.imageUrl
-				}));
-			} else {
-				avatarAvailable = false;
-				avatars = [];
-			}
-
-			if (
-				currentAvatarResult.status === 'fulfilled' &&
-				currentAvatarResult.value.status === 'available'
-			) {
-				currentAvatarUrl =
-					authenticatedImage(currentAvatarResult.value.data?.url) ?? currentAvatarUrl;
-			}
+			avatarAvailable = avatarEnabled;
 			writeCache(profileCacheKey, profileSnapshot());
+			if (!background) loading = false;
+			void loadProfileEnhancements(user.id, achievementsAdapter);
+			if (avatarAdapter) void checkAvatarAvailability();
 		} catch (reason) {
 			if (!background)
 				error = reason instanceof Error ? reason.message : 'Your profile could not be loaded.';
 		} finally {
 			if (!background) loading = false;
 		}
+	}
+
+	async function loadProfileEnhancements(
+		userId: string,
+		achievementsAdapter: AchievementBadgesAdapter | null
+	) {
+		const [requestResult, achievementResult, friendsResult, privacyResult] =
+			await Promise.allSettled([
+				loadRequests(),
+				achievementsAdapter
+					? achievementsAdapter.getEquipped(userId, navigator.language)
+					: Promise.resolve({ status: 'unavailable' as const, data: undefined }),
+				achievementsAdapter
+					? achievementsAdapter.getFriends(userId)
+					: Promise.resolve({ status: 'unavailable' as const, data: undefined }),
+				achievementsAdapter
+					? Promise.all([
+							achievementsAdapter.getPublicConfig(),
+							achievementsAdapter.getPreferences(userId)
+						])
+					: Promise.resolve(null)
+			]);
+
+		if (requestResult.status === 'fulfilled' && requestResult.value !== null) {
+			requestsAvailable = true;
+			requests = requestResult.value;
+		}
+		const privacy = privacyResult.status === 'fulfilled' ? privacyResult.value : null;
+		const publicConfig = privacy?.[0].data;
+		const preferences = privacy?.[1].data;
+		const showcaseHidden =
+			publicConfig?.forceHideEquippedShowcase === true ||
+			preferences?.hideEquippedShowcase === true;
+		equippedBadges =
+			!showcaseHidden &&
+			achievementResult.status === 'fulfilled' &&
+			achievementResult.value.status === 'available' &&
+			achievementResult.value.data
+				? achievementResult.value.data
+				: [];
+		friends =
+			publicConfig?.friendsEnabled === true &&
+			friendsResult.status === 'fulfilled' &&
+			friendsResult.value.status === 'available' &&
+			friendsResult.value.data
+				? friendsResult.value.data.friends.filter(
+						(friend) => Boolean(activityTitle(friend.nowPlaying)) || friend.isOnline
+					)
+				: [];
+		if (profileCacheKey) writeCache(profileCacheKey, profileSnapshot());
+	}
+
+	async function openAvatarPicker() {
+		if (!avatarAvailable) return;
+		avatarDialogOpen = true;
+		if (avatars.length || loadingAvatars || !avatarAdapter) return;
+		loadingAvatars = true;
+		try {
+			const result = await avatarAdapter.list();
+			if (result.status !== 'available' || !result.data) {
+				avatarAvailable = false;
+				return;
+			}
+			avatars = result.data.map((avatar) => ({
+				...avatar,
+				imageUrl: authenticatedImage(avatar.imageUrl) ?? avatar.imageUrl
+			}));
+		} finally {
+			loadingAvatars = false;
+		}
+	}
+
+	async function checkAvatarAvailability() {
+		const adapter = avatarAdapter;
+		if (!adapter || loadingAvatars) return;
+		const result = await adapter.list();
+		if (result.status !== 'available' || !result.data) {
+			avatarAvailable = false;
+			return;
+		}
+		avatarAvailable = true;
+		avatars = result.data.map((avatar) => ({
+			...avatar,
+			imageUrl: authenticatedImage(avatar.imageUrl) ?? avatar.imageUrl
+		}));
 	}
 
 	async function setAvatar(avatar: AvatarOption) {
@@ -250,6 +295,13 @@
 		const date = new Date(value);
 		if (Number.isNaN(date.valueOf())) return undefined;
 		return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
+	}
+
+	function activityTitle(value: Record<string, unknown> | undefined): string | undefined {
+		if (!value) return undefined;
+		for (const key of ['Title', 'title', 'Name', 'name', 'ItemName', 'itemName']) {
+			if (typeof value[key] === 'string') return value[key];
+		}
 	}
 </script>
 
@@ -294,7 +346,7 @@
 				<button
 					class="group/avatar-picker relative rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
 					aria-label="Choose avatar"
-					onclick={() => (avatarDialogOpen = true)}
+					onclick={openAvatarPicker}
 				>
 					<Avatar.Root class="size-24 sm:size-28">
 						{#if currentAvatarUrl}<Avatar.Image src={currentAvatarUrl} alt="" />{/if}
@@ -335,116 +387,148 @@
 
 		{#if equippedBadges.length}
 			<section class="space-y-3" aria-labelledby="equipped-badges">
-				<h2 id="equipped-badges" class="text-lg font-medium tracking-tight">Equipped badges</h2>
-				<div class="flex flex-wrap gap-2">
-					{#each equippedBadges as badge (badge.id)}<Badge variant="secondary"
-							><BadgeCheckIcon />{badge.title}</Badge
-						>{/each}
+				<div class="flex items-end justify-between gap-4">
+					<div>
+						<h2 id="equipped-badges" class="text-lg font-medium tracking-tight">
+							Pinned achievements
+						</h2>
+						<p class="text-sm text-muted-foreground">The badges you chose to showcase.</p>
+					</div>
+					<Button href={resolve('/achievements')} variant="ghost" size="sm">Manage</Button>
+				</div>
+				<div class="flex gap-3 overflow-x-auto pb-2">
+					{#each equippedBadges as badge (badge.id)}
+						<Card.Root size="sm" class="min-w-64 bg-card/70">
+							<Card.Header
+								><Card.Title class="flex items-center gap-2"
+									><BadgeCheckIcon />{badge.title}</Card.Title
+								>
+								<Card.Description>{badge.description}</Card.Description></Card.Header
+							>
+							<Card.Content><Badge variant="secondary">{badge.rarity}</Badge></Card.Content>
+						</Card.Root>
+					{/each}
 				</div>
 			</section>
 		{/if}
 
-		<Tabs.Root value="activity" class="gap-5">
-			<div class="overflow-x-auto pb-1">
-				<Tabs.List>
-					<Tabs.Trigger value="activity"
-						><Clock3Icon data-icon="inline-start" />Activity</Tabs.Trigger
-					>
-					<Tabs.Trigger value="favorites"
-						><HeartIcon data-icon="inline-start" />Favorites</Tabs.Trigger
-					>
-					{#if requestsAvailable}<Tabs.Trigger value="requests"
-							><InboxIcon data-icon="inline-start" />Requests</Tabs.Trigger
-						>{/if}
-				</Tabs.List>
-			</div>
+		{#if friends.length}
+			<section class="space-y-3" aria-labelledby="friends-watching">
+				<div>
+					<h2 id="friends-watching" class="text-lg font-medium tracking-tight">Friends watching</h2>
+					<p class="text-sm text-muted-foreground">
+						Shared by Achievement Badges with each friend’s privacy settings applied.
+					</p>
+				</div>
+				<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+					{#each friends as friend (friend.userId)}
+						<a
+							href={resolve('/(app)/profile/[id]', { id: friend.userId })}
+							class="rounded-4xl border border-border bg-card p-4 transition-colors hover:bg-accent"
+						>
+							<div class="flex items-center gap-3">
+								<Avatar.Root
+									><Avatar.Fallback>{friend.name.slice(0, 1).toUpperCase()}</Avatar.Fallback
+									></Avatar.Root
+								>
+								<div class="min-w-0">
+									<strong class="block truncate">{friend.name}</strong><span
+										class="text-xs text-muted-foreground"
+										>{friend.isOnline ? 'Online' : 'Offline'}</span
+									>
+								</div>
+							</div>
+							<p class="mt-3 truncate text-sm text-muted-foreground">
+								{activityTitle(friend.nowPlaying)
+									? `Watching ${activityTitle(friend.nowPlaying)}`
+									: activityTitle(friend.lastWatched)
+										? `Last watched ${activityTitle(friend.lastWatched)}`
+										: 'No shared activity'}
+							</p>
+						</a>
+					{/each}
+				</div>
+			</section>
+		{/if}
 
-			<Tabs.Content value="activity">
-				{#if recentlyPlayed.length}
-					<MediaRail
-						section={{
-							id: 'profile-recent',
-							title: 'Recently played',
-							items: recentlyPlayed,
-							variant: 'landscape'
-						}}
-					/>
-				{:else}
+		{#if recentlyPlayed.length}<MediaRail
+				section={{
+					id: 'profile-recent',
+					title: 'Recently watched',
+					items: recentlyPlayed,
+					variant: 'landscape'
+				}}
+			/>
+		{:else}<Empty.Root class="border border-border"
+				><Empty.Header
+					><Empty.Media variant="icon"><Clock3Icon /></Empty.Media><Empty.Title
+						>No recent activity</Empty.Title
+					><Empty.Description>Items you watch will appear here.</Empty.Description></Empty.Header
+				></Empty.Root
+			>{/if}
+
+		{#if favoriteMovies.length}<MediaRail
+				section={{
+					id: 'profile-favorite-movies',
+					title: 'Favorite movies',
+					items: favoriteMovies,
+					variant: 'portrait'
+				}}
+			/>{/if}
+		{#if favoriteShows.length}<MediaRail
+				section={{
+					id: 'profile-favorite-shows',
+					title: 'Favorite shows',
+					items: favoriteShows,
+					variant: 'portrait'
+				}}
+			/>{/if}
+		{#if favorites.length === 0}<Empty.Root class="border border-border"
+				><Empty.Header
+					><Empty.Media variant="icon"><HeartIcon /></Empty.Media><Empty.Title
+						>No favorites yet</Empty.Title
+					><Empty.Description>Favorite a movie or series to build your showcase.</Empty.Description
+					></Empty.Header
+				></Empty.Root
+			>{/if}
+
+		{#if requestsAvailable}
+			<section class="space-y-3" aria-labelledby="profile-requests">
+				<h2 id="profile-requests" class="text-lg font-medium tracking-tight">Requests</h2>
+				{#if requests.length}<div class="grid gap-3 md:grid-cols-2">
+						{#each requests as request (request.id)}
+							<Card.Root size="sm">
+								<Card.Header>
+									<Card.Title>{requestLabel(request)}</Card.Title>
+									<Card.Description>
+										{request.is4k ? '4K request' : 'Standard request'}{formatDate(request.createdAt)
+											? ` · ${formatDate(request.createdAt)}`
+											: ''}
+									</Card.Description>
+									<Card.Action
+										><Badge variant={requestBadgeVariant(request.status)}>{request.status}</Badge
+										></Card.Action
+									>
+								</Card.Header>
+								{#if request.mediaType === 'tv' && request.seasons.length}
+									<Card.Content class="text-sm text-muted-foreground"
+										>Seasons {request.seasons.join(', ')}</Card.Content
+									>
+								{/if}
+							</Card.Root>
+						{/each}
+					</div>{:else}
 					<Empty.Root class="border border-border">
 						<Empty.Header
-							><Empty.Media variant="icon"><Clock3Icon /></Empty.Media><Empty.Title
-								>No recent activity</Empty.Title
-							><Empty.Description>Items you finish will appear here.</Empty.Description
+							><Empty.Media variant="icon"><InboxIcon /></Empty.Media><Empty.Title
+								>No requests yet</Empty.Title
+							><Empty.Description>Your Seerr request history will appear here.</Empty.Description
 							></Empty.Header
 						>
 					</Empty.Root>
 				{/if}
-			</Tabs.Content>
-
-			<Tabs.Content value="favorites">
-				{#if favorites.length}
-					<MediaRail
-						section={{
-							id: 'profile-favorites',
-							title: 'Favorites',
-							items: favorites,
-							variant: 'portrait'
-						}}
-					/>
-				{:else}
-					<Empty.Root class="border border-border">
-						<Empty.Header
-							><Empty.Media variant="icon"><HeartIcon /></Empty.Media><Empty.Title
-								>No favorites yet</Empty.Title
-							><Empty.Description
-								>Favorite a movie, series, or episode in Jellyfin to keep it close.</Empty.Description
-							></Empty.Header
-						>
-					</Empty.Root>
-				{/if}
-			</Tabs.Content>
-
-			{#if requestsAvailable}
-				<Tabs.Content value="requests">
-					{#if requests.length}
-						<div class="grid gap-3 md:grid-cols-2">
-							{#each requests as request (request.id)}
-								<Card.Root size="sm">
-									<Card.Header>
-										<Card.Title>{requestLabel(request)}</Card.Title>
-										<Card.Description>
-											{request.is4k ? '4K request' : 'Standard request'}{formatDate(
-												request.createdAt
-											)
-												? ` · ${formatDate(request.createdAt)}`
-												: ''}
-										</Card.Description>
-										<Card.Action
-											><Badge variant={requestBadgeVariant(request.status)}>{request.status}</Badge
-											></Card.Action
-										>
-									</Card.Header>
-									{#if request.mediaType === 'tv' && request.seasons.length}
-										<Card.Content class="text-sm text-muted-foreground"
-											>Seasons {request.seasons.join(', ')}</Card.Content
-										>
-									{/if}
-								</Card.Root>
-							{/each}
-						</div>
-					{:else}
-						<Empty.Root class="border border-border">
-							<Empty.Header
-								><Empty.Media variant="icon"><InboxIcon /></Empty.Media><Empty.Title
-									>No requests yet</Empty.Title
-								><Empty.Description>Your Seerr request history will appear here.</Empty.Description
-								></Empty.Header
-							>
-						</Empty.Root>
-					{/if}
-				</Tabs.Content>
-			{/if}
-		</Tabs.Root>
+			</section>
+		{/if}
 	{/if}
 </div>
 
@@ -457,33 +541,39 @@
 			>
 		</Dialog.Header>
 		<div class="max-h-[70vh] overflow-y-auto pr-1">
-			<Accordion.Root type="multiple">
-				{#each avatarCategories as [category, categoryAvatars] (category)}
-					<Accordion.Item value={category}>
-						<Accordion.Trigger
-							>{category}<Badge variant="secondary">{categoryAvatars.length}</Badge
-							></Accordion.Trigger
-						>
-						<Accordion.Content>
-							<div class="grid grid-cols-3 gap-4 p-4 pt-1 sm:grid-cols-5 md:grid-cols-6">
-								{#each categoryAvatars as avatar (avatar.id)}
-									<button
-										class="mx-auto rounded-full ring-offset-background transition-transform outline-none hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
-										aria-label={`Use ${avatar.name}`}
-										disabled={changingAvatar !== null}
-										onclick={() => setAvatar(avatar)}
-									>
-										<Avatar.Root class="size-20 sm:size-24">
-											<Avatar.Image src={avatar.imageUrl} alt="" />
-											<Avatar.Fallback class="text-xl">{avatar.name.slice(0, 1)}</Avatar.Fallback>
-										</Avatar.Root>
-									</button>
-								{/each}
-							</div>
-						</Accordion.Content>
-					</Accordion.Item>
-				{/each}
-			</Accordion.Root>
+			{#if loadingAvatars}
+				<div class="grid grid-cols-3 gap-4 p-4 sm:grid-cols-5 md:grid-cols-6">
+					{#each [0, 1, 2, 3, 4, 5] as placeholder (placeholder)}
+						<Skeleton class="aspect-square rounded-full" />
+					{/each}
+				</div>
+			{:else}<Accordion.Root type="multiple">
+					{#each avatarCategories as [category, categoryAvatars] (category)}
+						<Accordion.Item value={category}>
+							<Accordion.Trigger
+								>{category}<Badge variant="secondary">{categoryAvatars.length}</Badge
+								></Accordion.Trigger
+							>
+							<Accordion.Content>
+								<div class="grid grid-cols-3 gap-4 p-4 pt-1 sm:grid-cols-5 md:grid-cols-6">
+									{#each categoryAvatars as avatar (avatar.id)}
+										<button
+											class="mx-auto rounded-full ring-offset-background transition-transform outline-none hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+											aria-label={`Use ${avatar.name}`}
+											disabled={changingAvatar !== null}
+											onclick={() => setAvatar(avatar)}
+										>
+											<Avatar.Root class="size-20 sm:size-24">
+												<Avatar.Image src={avatar.imageUrl} alt="" />
+												<Avatar.Fallback class="text-xl">{avatar.name.slice(0, 1)}</Avatar.Fallback>
+											</Avatar.Root>
+										</button>
+									{/each}
+								</div>
+							</Accordion.Content>
+						</Accordion.Item>
+					{/each}
+				</Accordion.Root>{/if}
 		</div>
 	</Dialog.Content>
 </Dialog.Root>

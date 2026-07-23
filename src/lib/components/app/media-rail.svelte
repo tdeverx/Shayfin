@@ -31,7 +31,13 @@
 
 <section aria-labelledby={`section-${section.id}`} class="flex min-w-0 flex-col gap-3">
 	<header class="flex items-center justify-between gap-4">
-		<h2 id={`section-${section.id}`} class="text-lg font-medium tracking-tight">{section.title}</h2>
+		<h2
+			id={`section-${section.id}`}
+			class="text-lg font-medium tracking-tight"
+			class:sr-only={section.displayTitleText === false}
+		>
+			{section.title}
+		</h2>
 		<div class="flex items-center gap-1">
 			<Button
 				variant="ghost"
@@ -51,7 +57,11 @@
 			>
 				<ChevronRightIcon />
 			</Button>
-			{#if section.href}<Button variant="ghost" size="sm" href={section.href}>
+			{#if section.href && section.showDetailsMenu !== false}<Button
+					variant="ghost"
+					size="sm"
+					href={section.href}
+				>
 					View all
 					<ChevronRightIcon data-icon="inline-end" />
 				</Button>{/if}

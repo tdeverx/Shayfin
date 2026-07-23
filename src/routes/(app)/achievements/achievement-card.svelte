@@ -5,10 +5,24 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Card from '$lib/components/ui/card';
 	import { Progress } from '$lib/components/ui/progress';
+	import { Button } from '$lib/components/ui/button';
 	import type { AchievementBadge } from '$lib/jellyfin';
 
-	let { badge, rarityPercentage }: { badge: AchievementBadge; rarityPercentage?: number } =
-		$props();
+	let {
+		badge,
+		rarityPercentage,
+		equipped = false,
+		canToggle = false,
+		busy = false,
+		onToggle
+	}: {
+		badge: AchievementBadge;
+		rarityPercentage?: number;
+		equipped?: boolean;
+		canToggle?: boolean;
+		busy?: boolean;
+		onToggle?: () => void;
+	} = $props();
 	let progress = $derived(
 		badge.targetValue > 0
 			? Math.min(100, Math.max(0, (badge.currentValue / badge.targetValue) * 100))
@@ -48,6 +62,16 @@
 					{badge.currentValue.toLocaleString()} of {badge.targetValue.toLocaleString()}
 				</p>
 			</div>
+		{/if}
+		{#if badge.unlocked && onToggle}
+			<Button
+				variant={equipped ? 'secondary' : 'outline'}
+				size="sm"
+				disabled={!canToggle || busy}
+				onclick={onToggle}
+			>
+				{busy ? 'Updating…' : equipped ? 'Unpin from profile' : 'Pin to profile'}
+			</Button>
 		{/if}
 	</Card.Content>
 </Card.Root>

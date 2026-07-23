@@ -6,9 +6,7 @@
 	import LinkIcon from '@lucide/svelte/icons/link';
 	import PuzzleIcon from '@lucide/svelte/icons/puzzle';
 	import DownloadIcon from '@lucide/svelte/icons/download';
-	import NetworkIcon from '@lucide/svelte/icons/network';
-	import MonitorPlayIcon from '@lucide/svelte/icons/monitor-play';
-	import SettingsIcon from '@lucide/svelte/icons/settings';
+	import ServerIcon from '@lucide/svelte/icons/server';
 	import * as Sidebar from '$lib/components/ui/sidebar';
 	import { Separator } from '$lib/components/ui/separator';
 	import BrandMark from './brand-mark.svelte';
@@ -26,17 +24,17 @@
 			label: 'Manage',
 			items: [
 				{ label: 'Overview', href: '/admin', icon: GaugeIcon },
-				{ label: 'Connections', href: '/admin/connections', icon: LinkIcon },
-				{ label: 'Integrations', href: '/admin/integrations', icon: PuzzleIcon },
+				{ label: 'Jellyfin', href: '/admin/jellyfin', icon: LinkIcon },
 				{ label: 'Downloads', href: '/admin/downloads', icon: DownloadIcon }
 			]
 		},
 		{
-			label: 'Server',
+			label: 'Services',
 			items: [
-				{ label: 'Networking', href: '/admin/networking', icon: NetworkIcon },
-				{ label: 'Playback', href: '/admin/playback', icon: MonitorPlayIcon },
-				{ label: 'System', href: '/admin/system', icon: SettingsIcon }
+				{ label: 'Seerr', href: '/admin/seerr', icon: PuzzleIcon },
+				{ label: 'Sonarr', href: '/admin/sonarr', icon: ServerIcon },
+				{ label: 'Radarr', href: '/admin/radarr', icon: ServerIcon },
+				{ label: 'Plugins', href: '/admin/plugins', icon: PuzzleIcon }
 			]
 		}
 	];

@@ -1,6 +1,8 @@
 import { utils as jellyfinUtils } from '@jellyfin/sdk';
 import type { DeviceProfile } from '@jellyfin/sdk/lib/generated-client/models/device-profile';
 import type { DirectPlayProfile } from '@jellyfin/sdk/lib/generated-client/models/direct-play-profile';
+import type { CodecProfile } from '@jellyfin/sdk/lib/generated-client/models/codec-profile';
+import type { PlaybackQuality } from '$lib/app/preferences';
 
 const MAX_STREAMING_BITRATE = 120_000_000;
 
@@ -61,14 +63,41 @@ function buildDirectPlayProfiles(video: HTMLVideoElement): DirectPlayProfile[] {
  * remuxing, or an HLS transcode. Subtitle support comes from the official SDK;
  * codec/container support is detected against the actual mounted video element.
  */
-export function createBrowserDeviceProfile(video: HTMLVideoElement): DeviceProfile {
+export function qualityBitrate(quality?: PlaybackQuality): number {
+	return (
+		(quality?.maxBitrateMbps === 'auto' || quality?.maxBitrateMbps === undefined
+			? 120
+			: quality.maxBitrateMbps) * 1_000_000
+	);
+}
+
+export function qualityCodecProfiles(quality?: PlaybackQuality): CodecProfile[] {
+	if (!quality || quality.maxResolution === 'auto') return [];
+	const height = quality.maxResolution;
+	const width = Math.round((height * 16) / 9);
+	return [
+		{
+			Type: 'Video',
+			Conditions: [
+				{ Condition: 'LessThanEqual', Property: 'Width', Value: String(width), IsRequired: true },
+				{ Condition: 'LessThanEqual', Property: 'Height', Value: String(height), IsRequired: true }
+			]
+		}
+	];
+}
+
+export function createBrowserDeviceProfile(
+	video: HTMLVideoElement,
+	quality?: PlaybackQuality
+): DeviceProfile {
 	const sdkProfile = jellyfinUtils.getBrowserDeviceProfile({ ssaExternal: false }, video);
+	const maxBitrate = qualityBitrate(quality);
 
 	return {
 		...sdkProfile,
 		Name: 'Shayfin Browser',
-		MaxStreamingBitrate: MAX_STREAMING_BITRATE,
-		MaxStaticBitrate: MAX_STREAMING_BITRATE,
+		MaxStreamingBitrate: maxBitrate || MAX_STREAMING_BITRATE,
+		MaxStaticBitrate: maxBitrate || MAX_STREAMING_BITRATE,
 		DirectPlayProfiles: buildDirectPlayProfiles(video),
 		TranscodingProfiles: [
 			{
@@ -87,6 +116,6 @@ export function createBrowserDeviceProfile(video: HTMLVideoElement): DeviceProfi
 			}
 		],
 		ContainerProfiles: [],
-		CodecProfiles: []
+		CodecProfiles: qualityCodecProfiles(quality)
 	};
 }

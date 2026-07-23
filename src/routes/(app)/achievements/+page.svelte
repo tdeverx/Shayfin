@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { toast } from 'svelte-sonner';
 	import { SvelteMap } from 'svelte/reactivity';
 	import ActivityIcon from '@lucide/svelte/icons/activity';
 	import BadgeCheckIcon from '@lucide/svelte/icons/badge-check';
@@ -8,7 +9,9 @@
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import TrophyIcon from '@lucide/svelte/icons/trophy';
 	import { session } from '$lib/app/session.svelte';
-	import { readCache, userCacheKey, writeCache } from '$lib/app/data-cache';
+	import { pluginEnabled } from '$lib/app/plugin-capabilities';
+	import FeatureUnavailable from '$lib/components/app/feature-unavailable.svelte';
+	import { deleteCache, readCache, userCacheKey, writeCache } from '$lib/app/data-cache';
 	import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
 	import * as Accordion from '$lib/components/ui/accordion';
 	import { Badge } from '$lib/components/ui/badge';
@@ -21,7 +24,9 @@
 	import {
 		AchievementBadgesAdapter,
 		type AchievementBadge,
-		type AchievementProfile
+		type AchievementProfile,
+		type AchievementPublicConfig,
+		type AchievementUserPreferences
 	} from '$lib/jellyfin';
 	import AchievementCard from './achievement-card.svelte';
 
@@ -29,6 +34,10 @@
 	let error = $state<string | null>(null);
 	let profile = $state<AchievementProfile | null>(null);
 	let degraded = $state(false);
+	let publicConfig = $state<AchievementPublicConfig | null>(null);
+	let pluginPreferences = $state<AchievementUserPreferences | null>(null);
+	let badgeBusy = $state<string | null>(null);
+	let achievementsCacheKey = '';
 	const CACHE_MS = 60_000;
 
 	let unlocked = $derived(profile?.badges.filter((badge) => badge.unlocked) ?? []);
@@ -150,12 +159,12 @@
 			loading = false;
 			return;
 		}
-		if (session.bootstrap?.plugins?.achievementBadges.enabled === false) {
-			error = 'Achievement Badges is disabled in Shayfin settings.';
+		if (!pluginEnabled(session.bootstrap, 'achievementBadges')) {
 			loading = false;
 			return;
 		}
 		const key = userCacheKey(session.bootstrap?.jellyfin?.server.id, user.id, 'achievements');
+		achievementsCacheKey = key;
 		if (!force) {
 			const cached = readCache<{ profile: AchievementProfile; degraded: boolean }>(key, CACHE_MS);
 			if (cached) {
@@ -167,7 +176,14 @@
 		}
 		if (!profile) loading = true;
 		error = null;
-		const result = await new AchievementBadgesAdapter(api).getProfile(user.id, navigator.language);
+		const adapter = new AchievementBadgesAdapter(api);
+		const [result, configResult, preferencesResult] = await Promise.all([
+			adapter.getProfile(user.id, navigator.language),
+			adapter.getPublicConfig(),
+			adapter.getPreferences(user.id)
+		]);
+		publicConfig = configResult.data ?? null;
+		pluginPreferences = preferencesResult.data ?? null;
 		if (result.data && (result.status === 'available' || result.status === 'degraded')) {
 			profile = result.data;
 			degraded = result.status === 'degraded';
@@ -175,299 +191,352 @@
 		} else error = result.message ?? 'Achievement Badges is not available on this Jellyfin server.';
 		loading = false;
 	}
+
+	async function toggleEquipped(badge: AchievementBadge) {
+		const api = session.api;
+		const user = session.user;
+		if (!api || !user || !profile || badgeBusy) return;
+		const equipped = profile.equipped.some((item) => item.id === badge.id);
+		const limit = pluginPreferences?.equippedSlots;
+		if (!equipped && limit !== undefined && profile.equipped.length >= limit) {
+			return void toast.error(`You can pin up to ${limit} badges.`);
+		}
+		const previous = profile;
+		profile = {
+			...profile,
+			equipped: equipped
+				? profile.equipped.filter((item) => item.id !== badge.id)
+				: [...profile.equipped, badge]
+		};
+		badgeBusy = badge.id;
+		const adapter = new AchievementBadgesAdapter(api);
+		const result = equipped
+			? await adapter.unequip(user.id, badge.id)
+			: await adapter.equip(user.id, badge.id);
+		if (result.status !== 'available') {
+			profile = previous;
+			toast.error(result.message ?? 'The profile badge could not be updated.');
+		} else {
+			if (achievementsCacheKey) writeCache(achievementsCacheKey, { profile, degraded });
+			deleteCache(userCacheKey(session.bootstrap?.jellyfin?.server.id, user.id, 'profile'));
+		}
+		badgeBusy = null;
+	}
 </script>
 
 <svelte:head><title>Achievements · Shayfin</title></svelte:head>
 
-<div class="mx-auto flex w-full max-w-7xl flex-col gap-6 py-4">
-	<header class="flex flex-wrap items-end justify-between gap-4">
-		<div>
-			<div class="mb-2 flex items-center gap-2">
-				<TrophyIcon class="size-5 text-muted-foreground" /><span
-					class="text-sm text-muted-foreground">Achievement Badges</span
-				>{#if degraded}<Badge variant="outline">Partial data</Badge>{/if}
+{#if !pluginEnabled(session.bootstrap, 'achievementBadges')}
+	<FeatureUnavailable
+		title="Achievements are unavailable"
+		description="Achievement Badges is disabled by this server’s administrator."
+	/>
+{:else}
+	<div class="mx-auto flex w-full max-w-7xl flex-col gap-6 py-4">
+		<header class="flex flex-wrap items-end justify-between gap-4">
+			<div>
+				<div class="mb-2 flex items-center gap-2">
+					<TrophyIcon class="size-5 text-muted-foreground" /><span
+						class="text-sm text-muted-foreground">Achievement Badges</span
+					>{#if degraded}<Badge variant="outline">Partial data</Badge>{/if}
+				</div>
+				<h1 class="text-3xl font-semibold tracking-tight sm:text-4xl">Achievements</h1>
+				<p class="mt-2 text-muted-foreground">
+					Your real progress, credited by the Jellyfin plugin.
+				</p>
 			</div>
-			<h1 class="text-3xl font-semibold tracking-tight sm:text-4xl">Achievements</h1>
-			<p class="mt-2 text-muted-foreground">Your real progress, credited by the Jellyfin plugin.</p>
-		</div>
-		{#if profile}<Button variant="outline" size="sm" onclick={() => load(true)}
-				><RotateCcwIcon data-icon="inline-start" />Refresh</Button
-			>{/if}
-	</header>
-	{#if loading}
-		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-			{#each [0, 1, 2, 3] as item (item)}<Skeleton class="h-32" />{/each}
-		</div>
-		<Skeleton class="h-96" />
-	{:else if error || !profile}
-		<Empty.Root class="border"
-			><Empty.Header
-				><Empty.Media variant="icon"><TrophyIcon /></Empty.Media><Empty.Title
-					>Achievements unavailable</Empty.Title
-				><Empty.Description>{error}</Empty.Description></Empty.Header
-			><Empty.Content
-				><Button variant="outline" onclick={() => load(true)}>Try again</Button></Empty.Content
-			></Empty.Root
-		>
-	{:else}
-		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-			<Card.Root size="sm"
-				><Card.Header
-					><Card.Description>Unlocked</Card.Description><Card.Title class="text-2xl"
-						>{profile.summary.unlocked} / {profile.summary.total}</Card.Title
-					></Card.Header
-				><Card.Content
-					><Progress
-						value={profile.summary.percentage}
-						aria-label="Achievement completion"
-					/></Card.Content
-				></Card.Root
+			{#if profile}<Button variant="outline" size="sm" onclick={() => load(true)}
+					><RotateCcwIcon data-icon="inline-start" />Refresh</Button
+				>{/if}
+		</header>
+		{#if loading}
+			<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+				{#each [0, 1, 2, 3] as item (item)}<Skeleton class="h-32" />{/each}
+			</div>
+			<Skeleton class="h-96" />
+		{:else if error || !profile}
+			<Empty.Root class="border"
+				><Empty.Header
+					><Empty.Media variant="icon"><TrophyIcon /></Empty.Media><Empty.Title
+						>Achievements unavailable</Empty.Title
+					><Empty.Description>{error}</Empty.Description></Empty.Header
+				><Empty.Content
+					><Button variant="outline" onclick={() => load(true)}>Try again</Button></Empty.Content
+				></Empty.Root
 			>
-			<Card.Root size="sm"
-				><Card.Header
-					><Card.Description>{profile.rank?.tier.name ?? 'Achievement score'}</Card.Description
-					><Card.Title class="text-2xl"
-						>{(profile.rank?.score ?? profile.summary.score).toLocaleString()}</Card.Title
-					></Card.Header
-				>{#if profile.rank?.nextTier}<Card.Content
-						><Progress value={profile.rank.progressToNext} aria-label="Rank progress" />
-						<p class="mt-1.5 text-xs text-muted-foreground">
-							Next: {profile.rank.nextTier.name} at {profile.rank.nextTier.minScore.toLocaleString()}
-						</p></Card.Content
-					>{/if}</Card.Root
-			>
-			<Card.Root size="sm"
-				><Card.Header
-					><Card.Description>Current streak</Card.Description><Card.Title
-						class="flex items-center gap-2 text-2xl"
-						><FlameIcon />{profile.summary.currentWatchStreak} days</Card.Title
-					></Card.Header
-				><Card.Content class="text-xs text-muted-foreground"
-					>Best: {profile.summary.bestWatchStreak} days</Card.Content
-				></Card.Root
-			>
-			<Card.Root size="sm"
-				><Card.Header
-					><Card.Description>Score bank</Card.Description><Card.Title class="text-2xl"
-						>{(profile.bank?.scoreBank ?? 0).toLocaleString()}</Card.Title
-					></Card.Header
-				><Card.Content class="text-xs text-muted-foreground"
-					>Lifetime {profile.bank?.lifetimeScore.toLocaleString() ?? '—'} · Prestige {profile.bank
-						?.prestigeLevel ?? 0} · Combo {profile.bank?.comboCount ?? 0} (best {profile.bank
-						?.bestComboCount ?? 0})</Card.Content
-				></Card.Root
-			>
-		</div>
-
-		<Tabs.Root value="progress" class="gap-5">
-			<div class="overflow-x-auto">
-				<Tabs.List
-					><Tabs.Trigger value="progress"><ActivityIcon />Progress</Tabs.Trigger><Tabs.Trigger
-						value="unlocked"><BadgeCheckIcon />Unlocked</Tabs.Trigger
-					><Tabs.Trigger value="quests"><SparklesIcon />Quests</Tabs.Trigger><Tabs.Trigger
-						value="activity"><FlameIcon />Activity</Tabs.Trigger
-					><Tabs.Trigger value="records"><TrophyIcon />Records</Tabs.Trigger></Tabs.List
+		{:else}
+			<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+				{#if publicConfig?.prestigeEnabled !== false}<Card.Root size="sm"
+						><Card.Header
+							><Card.Description>Unlocked</Card.Description><Card.Title class="text-2xl"
+								>{profile.summary.unlocked} / {profile.summary.total}</Card.Title
+							></Card.Header
+						><Card.Content
+							><Progress
+								value={profile.summary.percentage}
+								aria-label="Achievement completion"
+							/></Card.Content
+						></Card.Root
+					>{/if}
+				<Card.Root size="sm"
+					><Card.Header
+						><Card.Description>{profile.rank?.tier.name ?? 'Achievement score'}</Card.Description
+						><Card.Title class="text-2xl"
+							>{(profile.rank?.score ?? profile.summary.score).toLocaleString()}</Card.Title
+						></Card.Header
+					>{#if profile.rank?.nextTier}<Card.Content
+							><Progress value={profile.rank.progressToNext} aria-label="Rank progress" />
+							<p class="mt-1.5 text-xs text-muted-foreground">
+								Next: {profile.rank.nextTier.name} at {profile.rank.nextTier.minScore.toLocaleString()}
+							</p></Card.Content
+						>{/if}</Card.Root
+				>
+				<Card.Root size="sm"
+					><Card.Header
+						><Card.Description>Current streak</Card.Description><Card.Title
+							class="flex items-center gap-2 text-2xl"
+							><FlameIcon />{profile.summary.currentWatchStreak} days</Card.Title
+						></Card.Header
+					><Card.Content class="text-xs text-muted-foreground"
+						>Best: {profile.summary.bestWatchStreak} days</Card.Content
+					></Card.Root
+				>
+				<Card.Root size="sm"
+					><Card.Header
+						><Card.Description>Score bank</Card.Description><Card.Title class="text-2xl"
+							>{(profile.bank?.scoreBank ?? 0).toLocaleString()}</Card.Title
+						></Card.Header
+					><Card.Content class="text-xs text-muted-foreground"
+						>Lifetime {profile.bank?.lifetimeScore.toLocaleString() ?? '—'} · Prestige {profile.bank
+							?.prestigeLevel ?? 0} · Combo {profile.bank?.comboCount ?? 0} (best {profile.bank
+							?.bestComboCount ?? 0})</Card.Content
+					></Card.Root
 				>
 			</div>
-			<Tabs.Content value="progress" class="space-y-6">
-				{#if inProgress.length}<section class="space-y-3">
-						<div>
-							<h2 class="text-lg font-medium">Closest to unlocking</h2>
-							<p class="text-sm text-muted-foreground">
-								Every value comes directly from Achievement Badges.
-							</p>
-						</div>
-						<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-							{#each inProgress.slice(0, 12) as badge (badge.id)}<AchievementCard
-									{badge}
-									rarityPercentage={profile.rarityStats[badge.id]}
-								/>{/each}
-						</div>
-					</section>{/if}
-				{#if progressGroups.length}<section class="space-y-3">
-						<h2 class="text-lg font-medium">Browse all progress</h2>
-						<Accordion.Root type="multiple">
-							{#each progressGroups as [category, badges] (category)}<Accordion.Item
-									value={category}
-								>
-									<Accordion.Trigger
-										>{category}<Badge variant="secondary">{badges.length}</Badge></Accordion.Trigger
+
+			<Tabs.Root value="progress" class="gap-5">
+				<div class="overflow-x-auto">
+					<Tabs.List
+						><Tabs.Trigger value="progress"><ActivityIcon />Progress</Tabs.Trigger><Tabs.Trigger
+							value="unlocked"><BadgeCheckIcon />Unlocked</Tabs.Trigger
+						>{#if publicConfig?.questsEnabled !== false}<Tabs.Trigger value="quests"
+								><SparklesIcon />Quests</Tabs.Trigger
+							>{/if}<Tabs.Trigger value="activity"><FlameIcon />Activity</Tabs.Trigger><Tabs.Trigger
+							value="records"><TrophyIcon />Records</Tabs.Trigger
+						></Tabs.List
+					>
+				</div>
+				<Tabs.Content value="progress" class="space-y-6">
+					{#if inProgress.length}<section class="space-y-3">
+							<div>
+								<h2 class="text-lg font-medium">Closest to unlocking</h2>
+								<p class="text-sm text-muted-foreground">
+									Every value comes directly from Achievement Badges.
+								</p>
+							</div>
+							<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+								{#each inProgress.slice(0, 12) as badge (badge.id)}<AchievementCard
+										{badge}
+										rarityPercentage={profile.rarityStats[badge.id]}
+									/>{/each}
+							</div>
+						</section>{/if}
+					{#if progressGroups.length}<section class="space-y-3">
+							<h2 class="text-lg font-medium">Browse all progress</h2>
+							<Accordion.Root type="multiple">
+								{#each progressGroups as [category, badges] (category)}<Accordion.Item
+										value={category}
 									>
-									<Accordion.Content
-										><div class="grid gap-3 p-4 pt-1 md:grid-cols-2 xl:grid-cols-3">
-											{#each badges as badge (badge.id)}<AchievementCard
-													{badge}
-													rarityPercentage={profile.rarityStats[badge.id]}
-												/>{/each}
-										</div></Accordion.Content
-									>
-								</Accordion.Item>{/each}
-						</Accordion.Root>
-					</section>{/if}
-			</Tabs.Content>
-			<Tabs.Content value="unlocked" class="space-y-5">
-				{#if profile.equipped.length}<section class="space-y-3">
-						<h2 class="text-lg font-medium">Equipped badges</h2>
-						<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-							{#each profile.equipped as badge (badge.id)}<AchievementCard
-									{badge}
-									rarityPercentage={profile.rarityStats[badge.id]}
-								/>{/each}
-						</div>
-					</section>{/if}
-				<section class="space-y-3">
-					<h2 class="text-lg font-medium">All unlocked</h2>
-					{#if unlocked.length}<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-							{#each unlocked as badge (badge.id)}<AchievementCard
-									{badge}
-									rarityPercentage={profile.rarityStats[badge.id]}
-								/>{/each}
-						</div>{:else}<Alert
-							><AlertTitle>No unlocked badges yet</AlertTitle><AlertDescription
-								>Progress will appear as the plugin credits completed watches.</AlertDescription
-							></Alert
-						>{/if}
-				</section>
-			</Tabs.Content>
-			<Tabs.Content value="quests" class="space-y-4"
-				>{#if profile.quests.length}<div class="grid gap-3 md:grid-cols-2">
-						{#each profile.quests as quest (quest.id)}<Card.Root size="sm"
-								><Card.Header
-									><div class="flex items-center gap-2">
-										<Badge variant="outline">{quest.period}</Badge>{#if quest.completed}<Badge
-												>Complete</Badge
-											>{/if}
-									</div>
-									<Card.Title>{quest.title}</Card.Title><Card.Description
-										>{quest.description}</Card.Description
-									></Card.Header
-								><Card.Content class="space-y-2"
-									>{#if quest.targetValue > 0}<Progress
-											value={Math.min(100, (quest.currentValue / quest.targetValue) * 100)}
-											aria-label={`${quest.title} progress`}
-										/>
-										<p class="text-xs text-muted-foreground">
-											{quest.currentValue} of {quest.targetValue}{#if quest.reward}
-												· {quest.reward} score{/if}
-										</p>{/if}</Card.Content
-								></Card.Root
-							>{/each}
-					</div>{:else}<p class="text-sm text-muted-foreground">
-						No quest data is available from this plugin version.
-					</p>{/if}</Tabs.Content
-			>
-			<Tabs.Content value="activity" class="space-y-6">
-				{#if profile.recent.length}<section class="space-y-3">
-						<h2 class="text-lg font-medium">Recent unlocks</h2>
-						<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-							{#each profile.recent as badge (badge.id)}<Card.Root size="sm"
-									><Card.Header
-										><Card.Title>{badge.title}</Card.Title><Card.Description
-											>{badge.description}</Card.Description
-										></Card.Header
-									><Card.Content class="text-xs text-muted-foreground"
-										>{formatDate(badge.unlockedAt)}</Card.Content
-									></Card.Root
-								>{/each}
-						</div>
-					</section>{/if}
-				{#if profile.watchCalendar}<section class="space-y-3">
-						<div>
-							<h2 class="text-lg font-medium">Watch calendar</h2>
-							<p class="text-sm text-muted-foreground">
-								{profile.watchCalendar.days} days of credited activity
-							</p>
-						</div>
-						<div
-							class="grid grid-cols-[repeat(auto-fill,minmax(0,1fr))] gap-1 rounded-xl bg-muted/40 p-4"
-							style="grid-template-columns: repeat(15, minmax(0, 1fr));"
-						>
-							{#each Object.entries(profile.watchCalendar.counts) as [date, count] (date)}<div
-									class="aspect-square rounded-sm bg-primary"
-									style:opacity={Math.max(0.15, Math.min(1, count / 4))}
-									title={`${date}: ${count}`}
-									aria-label={`${date}: ${count} credited items`}
-								></div>{/each}
-						</div>
-					</section>{/if}
-				{#if recapStats.length}<section class="space-y-3">
-						<h2 class="text-lg font-medium">Monthly recap</h2>
-						<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-							{#each recapStats as [label, value] (label)}<Card.Root size="sm"
-									><Card.Header
-										><Card.Description>{titleCase(label)}</Card.Description><Card.Title
-											>{typeof value === 'number' ? value.toLocaleString() : value}</Card.Title
-										></Card.Header
-									></Card.Root
-								>{/each}
-						</div>
-					</section>{/if}
-				{#if recapHighlights.length}<section class="grid gap-3 md:grid-cols-3">
-						{#each recapHighlights as group (group.title)}<Card.Root size="sm">
-								<Card.Header><Card.Title>{group.title}</Card.Title></Card.Header>
-								<Card.Content class="space-y-2">
-									{#each group.items as item (item.name)}<div
-											class="flex items-center justify-between gap-3 text-sm"
+										<Accordion.Trigger
+											>{category}<Badge variant="secondary">{badges.length}</Badge
+											></Accordion.Trigger
 										>
-											<span class="truncate">{item.name}</span>
-											{#if item.count !== undefined}<Badge variant="secondary">{item.count}</Badge
-												>{/if}
-										</div>{/each}
-								</Card.Content>
-							</Card.Root>{/each}
-					</section>{/if}
-			</Tabs.Content>
-			<Tabs.Content value="records" class="space-y-6">
-				{#if profile.rank?.tiers.length}<section class="space-y-3">
-						<h2 class="text-lg font-medium">Rank ladder</h2>
-						<div class="flex flex-wrap gap-2">
-							{#each profile.rank.tiers as tier (tier.name)}<Badge
-									variant={tier.name === profile.rank?.tier.name ? 'default' : 'outline'}
-									>{tier.name} · {tier.minScore.toLocaleString()}</Badge
-								>{/each}
-						</div>
-					</section>{/if}
-				{#if recordStats.length}<section class="space-y-3">
-						<h2 class="text-lg font-medium">Personal records</h2>
-						<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-							{#each recordStats as stat (stat.label)}<Card.Root size="sm"
-									><Card.Header
-										><Card.Description>{stat.label}</Card.Description><Card.Title
-											>{stat.value.toLocaleString()}</Card.Title
-										></Card.Header
-									></Card.Root
-								>{/each}
-						</div>
-					</section>{/if}
-				{#if Object.keys(profile.categoryProgress).length}<section class="space-y-3">
-						<h2 class="text-lg font-medium">Category progress</h2>
-						<div class="grid gap-3 md:grid-cols-2">
-							{#each Object.entries(profile.categoryProgress) as [category, value] (category)}<Card.Root
-									size="sm"
-									><Card.Header><Card.Title>{category}</Card.Title></Card.Header><Card.Content
-										><Progress {value} aria-label={`${category} progress`} />
-										<p class="mt-1.5 text-xs text-muted-foreground">
-											{value.toFixed(0)}%
-										</p></Card.Content
-									></Card.Root
-								>{/each}
-						</div>
-					</section>{/if}
-				{#if Object.keys(profile.libraryCompletion).length}<section class="space-y-3">
-						<h2 class="text-lg font-medium">Library completion</h2>
-						<div class="grid gap-3 md:grid-cols-2">
-							{#each Object.entries(profile.libraryCompletion) as [library, value] (library)}<Card.Root
-									size="sm"
-									><Card.Header><Card.Title>{library}</Card.Title></Card.Header><Card.Content
-										><Progress {value} aria-label={`${library} completion`} />
-										<p class="mt-1.5 text-xs text-muted-foreground">
-											{value.toFixed(0)}%
-										</p></Card.Content
-									></Card.Root
-								>{/each}
-						</div>
-					</section>{/if}
-			</Tabs.Content>
-		</Tabs.Root>
-	{/if}
-</div>
+										<Accordion.Content
+											><div class="grid gap-3 p-4 pt-1 md:grid-cols-2 xl:grid-cols-3">
+												{#each badges as badge (badge.id)}<AchievementCard
+														{badge}
+														rarityPercentage={profile.rarityStats[badge.id]}
+													/>{/each}
+											</div></Accordion.Content
+										>
+									</Accordion.Item>{/each}
+							</Accordion.Root>
+						</section>{/if}
+				</Tabs.Content>
+				<Tabs.Content value="unlocked" class="space-y-5">
+					{#if profile.equipped.length}<section class="space-y-3">
+							<h2 class="text-lg font-medium">Equipped badges</h2>
+							<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+								{#each profile.equipped as badge (badge.id)}<AchievementCard
+										{badge}
+										rarityPercentage={profile.rarityStats[badge.id]}
+										equipped
+										canToggle
+										busy={badgeBusy === badge.id}
+										onToggle={() => toggleEquipped(badge)}
+									/>{/each}
+							</div>
+						</section>{/if}
+					<section class="space-y-3">
+						<h2 class="text-lg font-medium">All unlocked</h2>
+						{#if unlocked.length}<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+								{#each unlocked as badge (badge.id)}<AchievementCard
+										{badge}
+										rarityPercentage={profile.rarityStats[badge.id]}
+										equipped={profile.equipped.some((item) => item.id === badge.id)}
+										canToggle={profile.equipped.some((item) => item.id === badge.id) ||
+											pluginPreferences?.equippedSlots === undefined ||
+											profile.equipped.length < pluginPreferences.equippedSlots}
+										busy={badgeBusy === badge.id}
+										onToggle={() => toggleEquipped(badge)}
+									/>{/each}
+							</div>{:else}<Alert
+								><AlertTitle>No unlocked badges yet</AlertTitle><AlertDescription
+									>Progress will appear as the plugin credits completed watches.</AlertDescription
+								></Alert
+							>{/if}
+					</section>
+				</Tabs.Content>
+				{#if publicConfig?.questsEnabled !== false}<Tabs.Content value="quests" class="space-y-4"
+						>{#if profile.quests.length}<div class="grid gap-3 md:grid-cols-2">
+								{#each profile.quests as quest (quest.id)}<Card.Root size="sm"
+										><Card.Header
+											><div class="flex items-center gap-2">
+												<Badge variant="outline">{quest.period}</Badge>{#if quest.completed}<Badge
+														>Complete</Badge
+													>{/if}
+											</div>
+											<Card.Title>{quest.title}</Card.Title><Card.Description
+												>{quest.description}</Card.Description
+											></Card.Header
+										><Card.Content class="space-y-2"
+											>{#if quest.targetValue > 0}<Progress
+													value={Math.min(100, (quest.currentValue / quest.targetValue) * 100)}
+													aria-label={`${quest.title} progress`}
+												/>
+												<p class="text-xs text-muted-foreground">
+													{quest.currentValue} of {quest.targetValue}{#if quest.reward}
+														· {quest.reward} score{/if}
+												</p>{/if}</Card.Content
+										></Card.Root
+									>{/each}
+							</div>{:else}<p class="text-sm text-muted-foreground">
+								No quest data is available from this plugin version.
+							</p>{/if}</Tabs.Content
+					>{/if}
+				<Tabs.Content value="activity" class="space-y-6">
+					{#if profile.recent.length}<section class="space-y-3">
+							<h2 class="text-lg font-medium">Recent unlocks</h2>
+							<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+								{#each profile.recent as badge (badge.id)}<Card.Root size="sm"
+										><Card.Header
+											><Card.Title>{badge.title}</Card.Title><Card.Description
+												>{badge.description}</Card.Description
+											></Card.Header
+										><Card.Content class="text-xs text-muted-foreground"
+											>{formatDate(badge.unlockedAt)}</Card.Content
+										></Card.Root
+									>{/each}
+							</div>
+						</section>{/if}
+					{#if profile.watchCalendar}<section class="space-y-3">
+							<div>
+								<h2 class="text-lg font-medium">Watch calendar</h2>
+								<p class="text-sm text-muted-foreground">
+									{profile.watchCalendar.days} days of credited activity
+								</p>
+							</div>
+							<div
+								class="grid grid-cols-[repeat(auto-fill,minmax(0,1fr))] gap-1 rounded-xl bg-muted/40 p-4"
+								style="grid-template-columns: repeat(15, minmax(0, 1fr));"
+							>
+								{#each Object.entries(profile.watchCalendar.counts) as [date, count] (date)}<div
+										class="aspect-square rounded-sm bg-primary"
+										style:opacity={Math.max(0.15, Math.min(1, count / 4))}
+										title={`${date}: ${count}`}
+										aria-label={`${date}: ${count} credited items`}
+									></div>{/each}
+							</div>
+						</section>{/if}
+					{#if recapStats.length}<section class="space-y-3">
+							<h2 class="text-lg font-medium">Monthly recap</h2>
+							<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+								{#each recapStats as [label, value] (label)}<Card.Root size="sm"
+										><Card.Header
+											><Card.Description>{titleCase(label)}</Card.Description><Card.Title
+												>{typeof value === 'number' ? value.toLocaleString() : value}</Card.Title
+											></Card.Header
+										></Card.Root
+									>{/each}
+							</div>
+						</section>{/if}
+					{#if recapHighlights.length}<section class="grid gap-3 md:grid-cols-3">
+							{#each recapHighlights as group (group.title)}<Card.Root size="sm">
+									<Card.Header><Card.Title>{group.title}</Card.Title></Card.Header>
+									<Card.Content class="space-y-2">
+										{#each group.items as item (item.name)}<div
+												class="flex items-center justify-between gap-3 text-sm"
+											>
+												<span class="truncate">{item.name}</span>
+												{#if item.count !== undefined}<Badge variant="secondary">{item.count}</Badge
+													>{/if}
+											</div>{/each}
+									</Card.Content>
+								</Card.Root>{/each}
+						</section>{/if}
+				</Tabs.Content>
+				<Tabs.Content value="records" class="space-y-6">
+					{#if profile.rank?.tiers.length}<section class="space-y-3">
+							<h2 class="text-lg font-medium">Rank ladder</h2>
+							<div class="flex flex-wrap gap-2">
+								{#each profile.rank.tiers as tier (tier.name)}<Badge
+										variant={tier.name === profile.rank?.tier.name ? 'default' : 'outline'}
+										>{tier.name} · {tier.minScore.toLocaleString()}</Badge
+									>{/each}
+							</div>
+						</section>{/if}
+					{#if recordStats.length}<section class="space-y-3">
+							<h2 class="text-lg font-medium">Personal records</h2>
+							<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+								{#each recordStats as stat (stat.label)}<Card.Root size="sm"
+										><Card.Header
+											><Card.Description>{stat.label}</Card.Description><Card.Title
+												>{stat.value.toLocaleString()}</Card.Title
+											></Card.Header
+										></Card.Root
+									>{/each}
+							</div>
+						</section>{/if}
+					{#if Object.keys(profile.categoryProgress).length}<section class="space-y-3">
+							<h2 class="text-lg font-medium">Category progress</h2>
+							<div class="grid gap-3 md:grid-cols-2">
+								{#each Object.entries(profile.categoryProgress) as [category, value] (category)}<Card.Root
+										size="sm"
+										><Card.Header><Card.Title>{category}</Card.Title></Card.Header><Card.Content
+											><Progress {value} aria-label={`${category} progress`} />
+											<p class="mt-1.5 text-xs text-muted-foreground">
+												{value.toFixed(0)}%
+											</p></Card.Content
+										></Card.Root
+									>{/each}
+							</div>
+						</section>{/if}
+					{#if Object.keys(profile.libraryCompletion).length}<section class="space-y-3">
+							<h2 class="text-lg font-medium">Library completion</h2>
+							<div class="grid gap-3 md:grid-cols-2">
+								{#each Object.entries(profile.libraryCompletion) as [library, value] (library)}<Card.Root
+										size="sm"
+										><Card.Header><Card.Title>{library}</Card.Title></Card.Header><Card.Content
+											><Progress {value} aria-label={`${library} completion`} />
+											<p class="mt-1.5 text-xs text-muted-foreground">
+												{value.toFixed(0)}%
+											</p></Card.Content
+										></Card.Root
+									>{/each}
+							</div>
+						</section>{/if}
+				</Tabs.Content>
+			</Tabs.Root>
+		{/if}
+	</div>
+{/if}

@@ -19,7 +19,7 @@ afterEach(async () => {
 describe('ConfigStore', () => {
 	it('encrypts integration secrets with a mode 0600 key', async () => {
 		const store = await temporaryStore();
-		await store.setIntegration('seerr', {
+		await store.setSeerrIntegration({
 			enabled: true,
 			url: 'http://localhost:5055/',
 			apiKey: 'not-plaintext'
@@ -27,7 +27,7 @@ describe('ConfigStore', () => {
 
 		const persisted = await readFile(path.join(store.directory, 'config.json'), 'utf8');
 		const keyStats = await stat(path.join(store.directory, 'secret.key'));
-		const resolved = await store.resolveIntegration('seerr');
+		const resolved = await store.resolveSeerrIntegration();
 
 		expect(persisted).not.toContain('not-plaintext');
 		expect(resolved?.apiKey).toBe('not-plaintext');
@@ -37,12 +37,14 @@ describe('ConfigStore', () => {
 	it('serializes concurrent updates and leaves only a complete atomic config', async () => {
 		const store = await temporaryStore();
 		await Promise.all([
-			store.setIntegration('sonarr', {
+			store.createServarrInstance('sonarr', {
+				label: 'Main Sonarr',
 				enabled: true,
 				url: 'http://sonarr.test:8989',
 				apiKey: 'sonarr-secret'
 			}),
-			store.setIntegration('radarr', {
+			store.createServarrInstance('radarr', {
+				label: 'Main Radarr',
 				enabled: true,
 				url: 'http://radarr.test:7878',
 				apiKey: 'radarr-secret'
@@ -53,8 +55,8 @@ describe('ConfigStore', () => {
 		const entries = await readdir(store.directory);
 		const persisted = JSON.parse(await readFile(path.join(store.directory, 'config.json'), 'utf8'));
 
-		expect(config.integrations.sonarr?.url).toBe('http://sonarr.test:8989');
-		expect(config.integrations.radarr?.url).toBe('http://radarr.test:7878');
+		expect(config.integrations.sonarr[0]?.url).toBe('http://sonarr.test:8989');
+		expect(config.integrations.radarr[0]?.url).toBe('http://radarr.test:7878');
 		expect(entries.some((entry) => entry.endsWith('.tmp'))).toBe(false);
 		expect(persisted.schemaVersion).toBe(CONFIG_SCHEMA_VERSION);
 	});
@@ -71,7 +73,7 @@ describe('ConfigStore', () => {
 
 	it('requires a new key and clears Seerr mappings when an endpoint changes', async () => {
 		const store = await temporaryStore();
-		await store.setIntegration('seerr', {
+		await store.setSeerrIntegration({
 			enabled: true,
 			url: 'https://seerr-one.test',
 			apiKey: 'first-key'
@@ -82,22 +84,26 @@ describe('ConfigStore', () => {
 		});
 
 		await expect(
-			store.setIntegration('seerr', { enabled: true, url: 'https://seerr-two.test' })
+			store.setSeerrIntegration({ enabled: true, url: 'https://seerr-two.test' })
 		).rejects.toMatchObject({ code: 'integration_api_key_required' });
 
-		await store.setIntegration('seerr', {
+		await store.setSeerrIntegration({
 			enabled: true,
 			url: 'https://seerr-two.test',
 			apiKey: 'second-key'
 		});
 		const config = await store.read();
 		expect(config.integrations.seerr?.userMappings).toBeUndefined();
-		expect((await store.resolveIntegration('seerr'))?.apiKey).toBe('second-key');
+		expect((await store.resolveSeerrIntegration())?.apiKey).toBe('second-key');
 	});
 
 	it('defaults plugin capabilities on and persists explicit overrides', async () => {
 		const store = await temporaryStore();
-		await store.write({ schemaVersion: CONFIG_SCHEMA_VERSION, integrations: {}, plugins: {} });
+		await store.write({
+			schemaVersion: CONFIG_SCHEMA_VERSION,
+			integrations: { sonarr: [], radarr: [] },
+			plugins: {}
+		});
 		expect((await store.read()).plugins.achievementBadges).toBeUndefined();
 
 		await store.setPluginIntegration('achievementBadges', {
@@ -108,5 +114,63 @@ describe('ConfigStore', () => {
 			enabled: false,
 			unlockNotifications: false
 		});
+	});
+
+	it('upgrades v1 by preserving Jellyfin and Seerr while resetting Servarr instances', async () => {
+		const store = await temporaryStore();
+		await writeFile(
+			path.join(store.directory, 'config.json'),
+			JSON.stringify({
+				schemaVersion: 1,
+				jellyfin: {
+					publicUrl: 'https://jellyfin.test',
+					serverId: 'server',
+					serverName: 'Jellyfin'
+				},
+				integrations: {
+					seerr: { enabled: false, url: 'https://seerr.test' },
+					sonarr: { enabled: true, url: 'https://sonarr.test' }
+				},
+				plugins: {}
+			})
+		);
+		const config = await store.read();
+		expect(config.schemaVersion).toBe(2);
+		expect(config.jellyfin?.serverId).toBe('server');
+		expect(config.integrations.seerr?.url).toBe('https://seerr.test');
+		expect(config.integrations.sonarr).toEqual([]);
+		expect(
+			JSON.parse(await readFile(path.join(store.directory, 'config.json'), 'utf8')).schemaVersion
+		).toBe(2);
+	});
+
+	it('requires unique instance labels and preserves encrypted keys on update', async () => {
+		const store = await temporaryStore();
+		const instance = await store.createServarrInstance('radarr', {
+			label: 'Movies',
+			enabled: true,
+			url: 'https://radarr.test',
+			apiKey: 'secret'
+		});
+		await expect(
+			store.createServarrInstance('radarr', {
+				label: 'movies',
+				enabled: true,
+				url: 'https://two.test',
+				apiKey: 'secret'
+			})
+		).rejects.toMatchObject({ code: 'servarr_label_taken' });
+		await store.updateServarrInstance('radarr', instance.id, {
+			label: 'Movies',
+			enabled: false,
+			url: 'https://radarr.test'
+		});
+		expect(await store.resolveServarrInstances('radarr')).toEqual([]);
+		await store.updateServarrInstance('radarr', instance.id, {
+			label: 'Movies',
+			enabled: true,
+			url: 'https://radarr.test'
+		});
+		expect((await store.resolveServarrInstances('radarr'))[0]?.apiKey).toBe('secret');
 	});
 });

@@ -41,6 +41,8 @@ export interface MediaSectionModel {
 	variant?: 'landscape' | 'portrait' | 'collection';
 	href?: string;
 	backdropUrl?: string;
+	displayTitleText?: boolean;
+	showDetailsMenu?: boolean;
 }
 
 export interface DownloadModel {

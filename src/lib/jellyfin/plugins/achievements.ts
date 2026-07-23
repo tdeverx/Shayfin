@@ -116,6 +116,124 @@ export interface AchievementWatchCalendar {
 	counts: Record<string, number>;
 }
 
+export interface AchievementPublicConfig {
+	leaderboardEnabled: boolean;
+	compareEnabled: boolean;
+	activityFeedEnabled: boolean;
+	prestigeEnabled: boolean;
+	questsEnabled: boolean;
+	forcePrivacyMode: boolean;
+	forceSpoilerMode: boolean;
+	forceExtremeSpoilerMode: boolean;
+	forceHideEquippedShowcase: boolean;
+	friendsEnabled: boolean;
+	friendsSimpleMode: boolean;
+	defaultLanguage?: string;
+}
+
+export interface AchievementUserPreferences {
+	raw: Record<string, unknown>;
+	privacyMode: boolean;
+	spoilerMode: boolean;
+	extremeSpoilerMode: boolean;
+	hideEquippedShowcase: boolean;
+	hideNowWatching: boolean;
+	hideLastWatched: boolean;
+	toastEnabled: boolean;
+	soundEnabled: boolean;
+	confettiEnabled: boolean;
+	minimumRarity?: string;
+	language?: string;
+	equippedSlots?: number;
+}
+
+export interface AchievementFriend {
+	userId: string;
+	name: string;
+	avatarUrl?: string;
+	isOnline: boolean;
+	nowPlaying?: Record<string, unknown>;
+	lastWatched?: Record<string, unknown>;
+	equipped: AchievementBadge[];
+}
+
+export interface AchievementFriends {
+	friends: AchievementFriend[];
+	incoming: AchievementFriend[];
+	outgoing: AchievementFriend[];
+}
+
+function decodePublicConfig(value: unknown): AchievementPublicConfig {
+	const record = asRecord(value);
+	const flag = (...keys: string[]) => booleanProperty(record, ...keys) ?? false;
+	return {
+		leaderboardEnabled: flag('LeaderboardEnabled', 'leaderboardEnabled'),
+		compareEnabled: flag('CompareEnabled', 'compareEnabled'),
+		activityFeedEnabled: flag('ActivityFeedEnabled', 'activityFeedEnabled'),
+		prestigeEnabled: flag('PrestigeEnabled', 'prestigeEnabled'),
+		questsEnabled: flag('QuestsEnabled', 'questsEnabled'),
+		forcePrivacyMode: flag('ForcePrivacyMode', 'forcePrivacyMode'),
+		forceSpoilerMode: flag('ForceSpoilerMode', 'forceSpoilerMode'),
+		forceExtremeSpoilerMode: flag('ForceExtremeSpoilerMode', 'forceExtremeSpoilerMode'),
+		forceHideEquippedShowcase: flag('ForceHideEquippedShowcase', 'forceHideEquippedShowcase'),
+		friendsEnabled: flag('FriendsEnabled', 'friendsEnabled'),
+		friendsSimpleMode: flag('FriendsSimpleMode', 'friendsSimpleMode'),
+		defaultLanguage: stringProperty(record, 'DefaultLanguage', 'defaultLanguage')
+	};
+}
+
+function decodePreferences(value: unknown): AchievementUserPreferences {
+	const raw = asRecord(value);
+	const flag = (...keys: string[]) => booleanProperty(raw, ...keys) ?? false;
+	return {
+		raw,
+		privacyMode: flag('PrivacyMode', 'privacyMode'),
+		spoilerMode: flag('SpoilerMode', 'spoilerMode'),
+		extremeSpoilerMode: flag('ExtremeSpoilerMode', 'extremeSpoilerMode'),
+		hideEquippedShowcase: flag('HideEquippedShowcase', 'hideEquippedShowcase'),
+		hideNowWatching: flag('HideNowWatching', 'hideNowWatching'),
+		hideLastWatched: flag('HideLastWatched', 'hideLastWatched'),
+		toastEnabled: booleanProperty(raw, 'ToastEnabled', 'toastEnabled') ?? true,
+		soundEnabled: booleanProperty(raw, 'SoundEnabled', 'soundEnabled') ?? true,
+		confettiEnabled: booleanProperty(raw, 'ConfettiEnabled', 'confettiEnabled') ?? true,
+		minimumRarity: stringProperty(raw, 'MinimumRarity', 'minimumRarity'),
+		language: stringProperty(raw, 'Language', 'language'),
+		equippedSlots: numberProperty(raw, 'EquippedSlots', 'equippedSlots')
+	};
+}
+
+function decodeFriend(value: unknown): AchievementFriend | null {
+	const record = asRecord(value);
+	const userId = stringProperty(record, 'UserId', 'userId', 'Id', 'id');
+	if (!userId) return null;
+	return {
+		userId,
+		name: stringProperty(record, 'Name', 'name', 'UserName', 'userName') ?? 'Jellyfin user',
+		avatarUrl: stringProperty(record, 'AvatarUrl', 'avatarUrl', 'ImageUrl', 'imageUrl'),
+		isOnline: booleanProperty(record, 'IsOnline', 'isOnline', 'Online', 'online') ?? false,
+		nowPlaying: Object.keys(asRecord(property(record, 'NowPlaying', 'nowPlaying'))).length
+			? asRecord(property(record, 'NowPlaying', 'nowPlaying'))
+			: undefined,
+		lastWatched: Object.keys(asRecord(property(record, 'LastWatched', 'lastWatched'))).length
+			? asRecord(property(record, 'LastWatched', 'lastWatched'))
+			: undefined,
+		equipped: decodeBadges(property(record, 'Equipped', 'equipped'))
+	};
+}
+
+function decodeFriends(value: unknown): AchievementFriends {
+	const record = asRecord(value);
+	const list = (...keys: string[]) =>
+		arrayProperty(record, ...keys)
+			.map(decodeFriend)
+			.filter((friend): friend is AchievementFriend => friend !== null);
+	return {
+		friends: list('Friends', 'friends'),
+		incoming: list('Incoming', 'incoming'),
+		outgoing: list('Outgoing', 'outgoing')
+	};
+}
+
 function decodeBadge(value: unknown): AchievementBadge | null {
 	const record = asRecord(value);
 	const id = stringProperty(record, 'Id', 'id');
@@ -338,6 +456,67 @@ export class AchievementBadgesAdapter {
 		return this.client.json(this.userPath(userId, '/summary'), { decode: decodeSummary });
 	}
 
+	getPublicConfig(): Promise<CapabilityState<AchievementPublicConfig>> {
+		return this.client.json('/Plugins/AchievementBadges/public-config', {
+			decode: decodePublicConfig
+		});
+	}
+
+	getPreferences(userId: string): Promise<CapabilityState<AchievementUserPreferences>> {
+		return this.client.json(this.userPath(userId, '/preferences'), { decode: decodePreferences });
+	}
+
+	async updatePreferences(
+		userId: string,
+		patch: Record<string, unknown>
+	): Promise<CapabilityState<AchievementUserPreferences>> {
+		const current = await this.getPreferences(userId);
+		if (current.status !== 'available' || !current.data) return current;
+		return this.client.json(this.userPath(userId, '/preferences'), {
+			method: 'POST',
+			body: { ...current.data.raw, ...patch },
+			decode: (value) => decodePreferences(value ?? { ...current.data?.raw, ...patch })
+		});
+	}
+
+	equip(userId: string, badgeId: string): Promise<CapabilityState<void>> {
+		return this.client.json(this.userPath(userId, `/equipped/${encodeURIComponent(badgeId)}`), {
+			method: 'POST',
+			decode: () => undefined
+		});
+	}
+
+	unequip(userId: string, badgeId: string): Promise<CapabilityState<void>> {
+		return this.client.json(this.userPath(userId, `/equipped/${encodeURIComponent(badgeId)}`), {
+			method: 'DELETE',
+			decode: () => undefined
+		});
+	}
+
+	getFriends(userId: string): Promise<CapabilityState<AchievementFriends>> {
+		return this.client.json(this.userPath(userId, '/friends'), { decode: decodeFriends });
+	}
+
+	getPublicEquipped(targetUserId: string): Promise<CapabilityState<AchievementBadge[]>> {
+		return this.client.json(
+			`/Plugins/AchievementBadges/profiles/${encodeURIComponent(targetUserId)}/equipped`,
+			{ decode: decodeBadges }
+		);
+	}
+
+	getActivityFeed(targetUserId: string, page = 1, pageSize = 20) {
+		return this.client.json('/Plugins/AchievementBadges/activity-feed', {
+			query: { userId: targetUserId, page, pageSize },
+			decode: (value) => {
+				const record = asRecord(value);
+				return (Array.isArray(value) ? value : arrayProperty(record, 'Items', 'items')) as Record<
+					string,
+					unknown
+				>[];
+			}
+		});
+	}
+
 	getBadges(userId: string, language?: string): Promise<CapabilityState<AchievementBadge[]>> {
 		return this.client.json(this.userPath(userId), {
 			query: { lang: language },
@@ -405,34 +584,14 @@ export class AchievementBadgesAdapter {
 		userId: string,
 		language?: string
 	): Promise<CapabilityState<AchievementProfile>> {
-		const [
-			summary,
-			badges,
-			recent,
-			records,
-			equipped,
-			rank,
-			bank,
-			quests,
-			watchCalendar,
-			libraryCompletion,
-			categoryProgress,
-			rarityStats,
-			recap
-		] = await Promise.all([
+		// This is the first-screen contract. Statistics, recap and other secondary
+		// dashboards have their own endpoints and should be loaded by the view that
+		// actually exposes them, not by every visit to Achievements.
+		const [summary, badges, recent, equipped] = await Promise.all([
 			this.getSummary(userId),
 			this.getBadges(userId, language),
 			this.getRecent(userId),
-			this.getRecords(userId),
-			this.getEquipped(userId, language),
-			this.getRank(userId),
-			this.getBank(userId),
-			this.getQuests(userId),
-			this.getWatchCalendar(userId),
-			this.getLibraryCompletion(userId),
-			this.getCategoryProgress(userId),
-			this.getRarityStats(),
-			this.getRecap(userId)
+			this.getEquipped(userId, language)
 		]);
 		if (summary.status !== 'available' || !summary.data) {
 			return {
@@ -442,36 +601,23 @@ export class AchievementBadgesAdapter {
 			};
 		}
 
-		const states = [
-			badges,
-			recent,
-			records,
-			equipped,
-			rank,
-			bank,
-			quests,
-			watchCalendar,
-			libraryCompletion,
-			categoryProgress,
-			rarityStats,
-			recap
-		];
+		const states = [badges, recent, equipped];
 		return {
 			status: states.every((state) => state.status === 'available') ? 'available' : 'degraded',
 			data: {
 				summary: summary.data,
 				badges: badges.data ?? [],
 				recent: recent.data ?? [],
-				records: records.data ?? {},
+				records: {},
 				equipped: equipped.data ?? [],
-				rank: rank.data,
-				bank: bank.data,
-				quests: quests.data ?? [],
-				watchCalendar: watchCalendar.data,
-				libraryCompletion: libraryCompletion.data ?? {},
-				categoryProgress: categoryProgress.data ?? {},
-				rarityStats: rarityStats.data ?? {},
-				recap: recap.data
+				rank: undefined,
+				bank: undefined,
+				quests: [],
+				watchCalendar: undefined,
+				libraryCompletion: {},
+				categoryProgress: {},
+				rarityStats: {},
+				recap: undefined
 			},
 			message: states.some((state) => state.status !== 'available')
 				? 'Some achievement data could not be loaded'

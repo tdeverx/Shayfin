@@ -24,13 +24,13 @@ export const GET: RequestHandler = async () => {
 				}
 			},
 			plugins: {
-				homeScreenSections: { enabled: config.plugins.homeScreenSections?.enabled ?? true },
-				mediaBarEnhanced: { enabled: config.plugins.mediaBarEnhanced?.enabled ?? true },
+				homeScreenSections: { enabled: config.plugins.homeScreenSections?.enabled ?? false },
+				mediaBarEnhanced: { enabled: config.plugins.mediaBarEnhanced?.enabled ?? false },
 				achievementBadges: {
-					enabled: config.plugins.achievementBadges?.enabled ?? true,
+					enabled: config.plugins.achievementBadges?.enabled ?? false,
 					unlockNotifications: config.plugins.achievementBadges?.unlockNotifications ?? true
 				},
-				getAvatar: { enabled: config.plugins.getAvatar?.enabled ?? true }
+				getAvatar: { enabled: config.plugins.getAvatar?.enabled ?? false }
 			}
 		} satisfies BootstrapResponse);
 	} catch (error) {

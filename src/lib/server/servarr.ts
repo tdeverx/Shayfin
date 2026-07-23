@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { DownloadProgress, NormalizedMediaRequest } from './contracts';
 import { integrationJson, type ResolvedIntegration } from './integrations';
+import type { ResolvedServarrInstance } from './config';
 
 const QueueRecordSchema = z
 	.object({
@@ -18,6 +19,8 @@ const QueueRecordSchema = z
 		errorMessage: z.string().nullish(),
 		movieId: z.number().int().optional(),
 		seriesId: z.number().int().optional(),
+		movie: z.unknown().optional(),
+		series: z.unknown().optional(),
 		statusMessages: z
 			.array(
 				z
@@ -30,6 +33,27 @@ const QueueRecordSchema = z
 			.optional()
 	})
 	.passthrough();
+
+const QUEUE_TTL_MS = 10_000;
+const CATALOG_TTL_MS = 5 * 60_000;
+interface TimedValue<T> {
+	value: T;
+	storedAt: number;
+}
+const queueCaches = new WeakMap<typeof fetch, Map<string, TimedValue<DownloadProgress[]>>>();
+const catalogCaches = new WeakMap<typeof fetch, Map<string, TimedValue<unknown[]>>>();
+
+function cacheFor<T>(
+	owner: WeakMap<typeof fetch, Map<string, TimedValue<T>>>,
+	fetcher: typeof fetch
+): Map<string, TimedValue<T>> {
+	let cache = owner.get(fetcher);
+	if (!cache) {
+		cache = new Map();
+		owner.set(fetcher, cache);
+	}
+	return cache;
+}
 
 const MovieSchema = z
 	.object({
@@ -78,6 +102,7 @@ function queueProgress(size: number | undefined, sizeLeft: number | undefined): 
 
 export function normalizeServarrQueue(
 	service: 'sonarr' | 'radarr',
+	instance: Pick<ResolvedServarrInstance, 'id' | 'label'>,
 	records: unknown[],
 	catalog: unknown[]
 ): DownloadProgress[] {
@@ -105,8 +130,10 @@ export function normalizeServarrQueue(
 
 		return [
 			{
-				id: `${service}:${item.id}`,
+				id: `${service}:${instance.id}:${item.id}`,
 				service,
+				instanceId: instance.id,
+				instanceLabel: instance.label,
 				mediaType: service === 'radarr' ? 'movie' : 'series',
 				title: item.title ?? movie?.title ?? series?.title ?? 'Unknown download',
 				providerIds: {
@@ -146,28 +173,57 @@ export function filterDownloadsForRequests(
 
 export async function fetchServarrQueue(
 	service: 'sonarr' | 'radarr',
-	integration: ResolvedIntegration,
+	instance: ResolvedServarrInstance,
 	fetcher: typeof fetch = fetch
 ): Promise<DownloadProgress[]> {
+	const integration: ResolvedIntegration = instance;
+	const cacheKey = `${service}:${instance.id}:${integration.url}`;
+	const queueCache = cacheFor(queueCaches, fetcher);
+	const cachedQueue = queueCache.get(cacheKey);
+	if (cachedQueue && Date.now() - cachedQueue.storedAt < QUEUE_TTL_MS) return cachedQueue.value;
 	const queueQuery =
 		service === 'radarr'
 			? '/api/v3/queue?page=1&pageSize=100&includeUnknownMovieItems=true&includeMovie=true'
 			: '/api/v3/queue?page=1&pageSize=100&includeUnknownSeriesItems=true&includeSeries=true';
-	const [queuePayload, catalogPayload] = await Promise.all([
-		integrationJson(integration, queueQuery, {}, fetcher),
-		integrationJson(
-			integration,
-			service === 'radarr' ? '/api/v3/movie' : '/api/v3/series',
-			{},
-			fetcher
-		)
-	]);
+	const queuePayload = await integrationJson(integration, queueQuery, {}, fetcher);
 	const records = z
 		.union([
 			z.array(z.unknown()),
 			z.object({ records: z.array(z.unknown()) }).transform((v) => v.records)
 		])
 		.parse(queuePayload);
-	const catalog = z.array(z.unknown()).parse(catalogPayload);
-	return normalizeServarrQueue(service, records, catalog);
+	const includedCatalog = records.flatMap((record) => {
+		const parsed = QueueRecordSchema.safeParse(record);
+		if (!parsed.success) return [];
+		return service === 'radarr'
+			? parsed.data.movie
+				? [parsed.data.movie]
+				: []
+			: parsed.data.series
+				? [parsed.data.series]
+				: [];
+	});
+	let downloads = normalizeServarrQueue(service, instance, records, includedCatalog);
+	const providerIdsComplete = downloads.every((download) =>
+		service === 'radarr'
+			? download.providerIds.tmdbId !== undefined
+			: download.providerIds.tvdbId !== undefined
+	);
+	if (!providerIdsComplete) {
+		const catalogCache = cacheFor(catalogCaches, fetcher);
+		let catalog = catalogCache.get(cacheKey);
+		if (!catalog || Date.now() - catalog.storedAt >= CATALOG_TTL_MS) {
+			const payload = await integrationJson(
+				integration,
+				service === 'radarr' ? '/api/v3/movie' : '/api/v3/series',
+				{},
+				fetcher
+			);
+			catalog = { value: z.array(z.unknown()).parse(payload), storedAt: Date.now() };
+			catalogCache.set(cacheKey, catalog);
+		}
+		downloads = normalizeServarrQueue(service, instance, records, catalog.value);
+	}
+	queueCache.set(cacheKey, { value: downloads, storedAt: Date.now() });
+	return downloads;
 }

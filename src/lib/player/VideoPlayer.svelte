@@ -5,9 +5,12 @@
 </script>
 
 <script lang="ts">
+	import type { BaseItemDto } from '@jellyfin/sdk/lib/generated-client/models/base-item-dto.js';
 	import type { DeviceProfile } from '@jellyfin/sdk/lib/generated-client/models/device-profile';
 	import { onMount, tick } from 'svelte';
+	import { itemEntityKey, readEntity, upsertEntity } from '$lib/app/data-cache';
 	import { cn } from '$lib/utils.js';
+	import type { PlaybackQuality } from '$lib/app/preferences';
 	import { JellyfinPlaybackClient } from './client.js';
 	import {
 		CONTROLS_HIDE_DELAY_MS,
@@ -16,6 +19,7 @@
 	} from './constants.js';
 	import { createBrowserDeviceProfile } from './device-profile.js';
 	import { MediaSourceController } from './media-source.js';
+	import { shouldRevealNextUp, shouldStartNextUpCountdown } from './next-up.js';
 	import PlayerChrome from './PlayerChrome.svelte';
 	import {
 		buildPlaybackProgressPayload,
@@ -52,13 +56,19 @@
 
 	let {
 		serverUrl,
+		serverId,
 		accessToken,
 		userId,
 		itemId,
 		deviceId,
 		startTicks = 0,
 		nextItemId = null,
+		nextUp = null,
+		presentation,
+		quality = { maxResolution: 'auto', maxBitrateMbps: 'auto' },
+		autoplayNext = true,
 		onNext,
+		onSaveDefaultQuality,
 		onExit,
 		onThemeAudioStop,
 		class: className
@@ -83,8 +93,13 @@
 	let muted = $state(false);
 	let paused = $state(true);
 	let playbackRate = $state(1);
+	let currentQuality = $state<PlaybackQuality>({
+		maxResolution: 'auto',
+		maxBitrateMbps: 'auto'
+	});
 	let isLoading = $state(true);
 	let isBuffering = $state(false);
+	let videoReady = $state(false);
 	let playbackError = $state<string | null>(null);
 	let controlsVisible = $state(true);
 	let sliderSeeking = $state(false);
@@ -101,6 +116,10 @@
 	let operationGeneration = 0;
 	let activeAbortController: AbortController | null = null;
 	let controlsTimer: ReturnType<typeof setTimeout> | undefined;
+	let nextDismissed = $state(false);
+	let nextCountdownDeadline = $state<number | null>(null);
+	let countdownClock = $state(Date.now());
+	let nextNavigationStarted = false;
 
 	let audioStreams = $derived(
 		(mediaSource?.MediaStreams ?? []).filter(
@@ -123,6 +142,20 @@
 		activeSegment?.Type && activeSegment.EndTicks
 			? MEDIA_SEGMENT_LABELS[activeSegment.Type as SupportedMediaSegmentType]
 			: null
+	);
+	let showNextUp = $derived(
+		shouldRevealNextUp({
+			hasNext: Boolean(nextUp),
+			dismissed: nextDismissed,
+			duration,
+			currentTime,
+			segmentType: activeSegment?.Type
+		})
+	);
+	let nextCountdown = $derived(
+		nextCountdownDeadline === null
+			? null
+			: Math.max(0, Math.ceil((nextCountdownDeadline - countdownClock) / 1000))
 	);
 
 	function safelyStopThemeAudio(callback = onThemeAudioStop): void {
@@ -188,6 +221,7 @@
 	): Promise<void> {
 		isLoading = true;
 		isBuffering = false;
+		videoReady = false;
 		playbackError = null;
 		activeItemId = snapshot.itemId;
 		safelyStopThemeAudio(snapshot.onThemeAudioStop);
@@ -198,7 +232,7 @@
 				snapshot.accessToken,
 				snapshot.deviceId
 			);
-			const profile = createBrowserDeviceProfile(videoElement);
+			const profile = createBrowserDeviceProfile(videoElement, currentQuality);
 			playbackClient = client;
 			deviceProfile = profile;
 
@@ -283,6 +317,25 @@
 		});
 	}
 
+	function patchCachedProgress(cachedItemId: string, positionTicks: number): void {
+		const key = itemEntityKey(serverId, userId, cachedItemId);
+		const cached = readEntity<BaseItemDto>(key);
+		if (!cached) return;
+		const runtimeTicks = cached.value.RunTimeTicks ?? secondsToTicks(duration);
+		const playedPercentage =
+			runtimeTicks > 0
+				? Math.min(100, Math.max(0, (positionTicks / runtimeTicks) * 100))
+				: undefined;
+		upsertEntity(key, {
+			...cached.value,
+			UserData: {
+				...cached.value.UserData,
+				PlaybackPositionTicks: positionTicks,
+				...(playedPercentage === undefined ? {} : { PlayedPercentage: playedPercentage })
+			}
+		});
+	}
+
 	function reportPlaybackProgress(force = false): void {
 		const client = playbackClient;
 		const payload = currentProgressPayload();
@@ -290,6 +343,7 @@
 		const now = Date.now();
 		if (!force && now - lastProgressReportAt < PROGRESS_REPORT_INTERVAL_MS) return;
 		lastProgressReportAt = now;
+		patchCachedProgress(payload.ItemId, payload.PositionTicks);
 		void client.reportPlaybackProgress(payload).catch(() => {
 			// A later periodic report will reconcile the session position.
 		});
@@ -314,6 +368,7 @@
 			liveStreamId: mediaSource?.LiveStreamId ?? null,
 			failed
 		});
+		patchCachedProgress(payload.ItemId, payload.PositionTicks);
 		try {
 			await client.reportPlaybackStopped(payload, keepalive);
 		} catch {
@@ -395,6 +450,19 @@
 		duration = Number.isFinite(videoElement.duration) ? videoElement.duration : duration;
 		if (!sliderSeeking) sliderSeekTime = currentTime;
 		reportPlaybackProgress();
+		if (
+			shouldStartNextUpCountdown({
+				hasNext: Boolean(nextUp),
+				dismissed: nextDismissed,
+				duration,
+				currentTime,
+				segmentType: activeSegment?.Type,
+				autoplay: autoplayNext,
+				countdownStarted: nextCountdownDeadline !== null
+			})
+		) {
+			nextCountdownDeadline = Date.now() + 10_000;
+		}
 	}
 
 	function handleBufferProgress(): void {
@@ -424,7 +492,25 @@
 	function handleEnded(): void {
 		paused = true;
 		void reportPlaybackStopped(false, true);
-		if (nextItemId && onNext) void onNext(nextItemId);
+		if (autoplayNext && nextItemId && onNext && !nextDismissed && nextCountdownDeadline === null) {
+			nextCountdownDeadline = Date.now() + 10_000;
+		}
+	}
+
+	function dismissNext(): void {
+		nextDismissed = true;
+		nextCountdownDeadline = null;
+	}
+
+	async function selectQuality(nextQuality: PlaybackQuality): Promise<void> {
+		if (
+			nextQuality.maxResolution === currentQuality.maxResolution &&
+			nextQuality.maxBitrateMbps === currentQuality.maxBitrateMbps
+		)
+			return;
+		currentQuality = nextQuality;
+		deviceProfile = createBrowserDeviceProfile(videoElement, nextQuality);
+		await renegotiateStreams(selectedAudioIndex, selectedSubtitleIndex);
 	}
 
 	function handleVideoError(): void {
@@ -555,6 +641,7 @@
 	}
 
 	onMount(() => {
+		currentQuality = quality;
 		mounted = true;
 		mediaController = new MediaSourceController(
 			videoElement,
@@ -576,6 +663,7 @@
 			if (document.visibilityState === 'hidden') reportPlaybackProgress(true);
 		};
 		const handlePageHide = () => void reportPlaybackStopped(false, true);
+		const countdownTimer = setInterval(() => (countdownClock = Date.now()), 250);
 
 		document.addEventListener('fullscreenchange', handleFullscreenChange);
 		document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -588,12 +676,28 @@
 			mediaController?.teardown();
 			mediaController = null;
 			if (controlsTimer) clearTimeout(controlsTimer);
+			clearInterval(countdownTimer);
 			document.removeEventListener('fullscreenchange', handleFullscreenChange);
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
 			window.removeEventListener('pagehide', handlePageHide);
 			videoElement.removeEventListener('enterpictureinpicture', handleEnterPictureInPicture);
 			videoElement.removeEventListener('leavepictureinpicture', handleLeavePictureInPicture);
 		};
+	});
+
+	$effect(() => {
+		if (
+			nextCountdownDeadline !== null &&
+			nextCountdown === 0 &&
+			autoplayNext &&
+			nextItemId &&
+			onNext &&
+			!nextDismissed &&
+			!nextNavigationStarted
+		) {
+			nextNavigationStarted = true;
+			void onNext(nextItemId);
+		}
 	});
 
 	$effect(() => {
@@ -610,6 +714,9 @@
 		if (!mounted || !videoElement) return;
 
 		const generation = ++operationGeneration;
+		nextDismissed = false;
+		nextCountdownDeadline = null;
+		nextNavigationStarted = false;
 		const controller = new AbortController();
 		activeAbortController = controller;
 		playbackStartedReported = false;
@@ -637,17 +744,28 @@
 <div
 	bind:this={containerElement}
 	class={cn(
-		'relative isolate flex h-full min-h-64 w-full overflow-hidden rounded-xl bg-muted outline-none',
+		'relative isolate flex h-full min-h-64 w-full overflow-hidden bg-black outline-none',
 		!controlsVisible && !paused && 'cursor-none',
 		className
 	)}
 	role="region"
 	aria-label="Video player"
 >
-	<!-- The video plane and controls intentionally own the only player-specific geometry. -->
+	{#if presentation?.backdropUrl}
+		<img
+			src={presentation.backdropUrl}
+			alt=""
+			class="absolute inset-0 size-full scale-105 object-cover opacity-55 blur-sm transition-opacity duration-700 {videoReady
+				? 'opacity-0'
+				: 'opacity-55'}"
+		/>
+		<div class="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-black/45"></div>
+	{/if}
 	<video
 		bind:this={videoElement}
-		class="size-full object-contain"
+		class="relative z-10 size-full object-contain transition-opacity duration-700 {videoReady
+			? 'opacity-100'
+			: 'opacity-0'}"
 		preload="auto"
 		playsinline
 		crossorigin="anonymous"
@@ -659,6 +777,7 @@
 		onpause={handlePause}
 		onwaiting={() => (isBuffering = true)}
 		onplaying={() => (isBuffering = false)}
+		onloadeddata={() => (videoReady = true)}
 		onended={handleEnded}
 		onerror={handleVideoError}
 		onseeked={() => reportPlaybackProgress(true)}
@@ -679,6 +798,8 @@
 	</video>
 
 	<PlayerChrome
+		title={presentation?.title}
+		secondary={presentation?.secondary}
 		{routeLabel}
 		{isLoading}
 		{isBuffering}
@@ -692,6 +813,10 @@
 		{duration}
 		{displayedSeekTime}
 		{nextItemId}
+		{nextUp}
+		{showNextUp}
+		{nextCountdown}
+		quality={currentQuality}
 		{audioStreams}
 		{subtitleStreams}
 		{selectedAudioIndex}
@@ -709,6 +834,9 @@
 		onToggleMute={toggleMute}
 		onVolume={handleVolume}
 		{onNext}
+		onDismissNext={dismissNext}
+		onSelectQuality={(quality) => void selectQuality(quality)}
+		{onSaveDefaultQuality}
 		onSelectAudio={(index) => void renegotiateStreams(index, selectedSubtitleIndex)}
 		onSelectSubtitle={(index) => void renegotiateStreams(selectedAudioIndex, index)}
 		onPlaybackSpeed={setPlaybackSpeed}

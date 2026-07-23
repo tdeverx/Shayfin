@@ -95,11 +95,11 @@
 
 <section class="grid gap-3 sm:grid-cols-3" aria-label="Download service availability">
 	{#if response}
-		{#each Object.entries(response.capabilities) as [service, capability] (service)}
+		{#each response.capabilities as capability (`${capability.service}:${capability.instanceId ?? 'service'}`)}
 			<Card.Root size="sm">
 				<Card.Content class="flex items-center justify-between gap-3">
 					<div>
-						<p class="font-medium capitalize">{service}</p>
+						<p class="font-medium capitalize">{capability.instanceLabel ?? capability.service}</p>
 						{#if capability.message}<p class="mt-1 text-xs text-muted-foreground">
 								{capability.message}
 							</p>{/if}
@@ -143,7 +143,9 @@
 									</p>{/if}
 							</Table.Cell>
 							<Table.Cell
-								><Badge variant="outline" class="capitalize">{download.service}</Badge></Table.Cell
+								><Badge variant="outline" class="capitalize"
+									>{download.service} · {download.instanceLabel}</Badge
+								></Table.Cell
 							>
 							<Table.Cell><DownloadStateBadge state={download.state} /></Table.Cell>
 							<Table.Cell class="min-w-48">
@@ -187,7 +189,8 @@
 							<Card.Title class="truncate">{download.title}</Card.Title>
 							<Card.Description
 								>{providerLabel(download)} ·
-								<span class="capitalize">{download.service}</span></Card.Description
+								<span class="capitalize">{download.service} · {download.instanceLabel}</span
+								></Card.Description
 							>
 						</div>
 						<DownloadStateBadge state={download.state} />

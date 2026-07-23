@@ -172,39 +172,42 @@ export class MediaBarEnhancedAdapter {
 	): Promise<BaseItemDto[]> {
 		const types = supportedTypes(config);
 		if (!types) return [];
-		const items: BaseItemDto[] = [];
-		for (const rawId of selection.ids) {
-			let id = rawId;
-			if (!/^[0-9a-f]{32}$/i.test(id)) {
-				const found = await this.getItems({
-					IncludeItemTypes: 'BoxSet,Playlist',
-					Recursive: true,
-					SearchTerm: id,
-					Limit: 1,
-					UserId: userId
-				});
-				id = found.data?.[0]?.Id ?? '';
-			}
-			if (!id) continue;
-			const item = await this.getItem(id, userId);
-			if (!item.data) continue;
-			if (
-				['BoxSet', 'Playlist', 'CollectionFolder', 'Folder', 'UserView'].includes(
-					item.data.Type ?? ''
-				)
-			) {
-				const children = await this.getItems({
-					ParentId: id,
-					Recursive: true,
-					IncludeItemTypes: types,
-					Fields: 'Overview,RemoteTrailers,LocalTrailerCount,Genres,MediaSources',
-					UserId: userId
-				});
-				items.push(...(children.data ?? []));
-			} else if (item.data.Type === 'Movie' || item.data.Type === 'Series') {
-				items.push(item.data);
-			}
-		}
+		const resolved = await Promise.all(
+			selection.ids.map(async (rawId) => {
+				let id = rawId;
+				if (!/^[0-9a-f]{32}$/i.test(id)) {
+					const found = await this.getItems({
+						IncludeItemTypes: 'BoxSet,Playlist',
+						Recursive: true,
+						SearchTerm: id,
+						Limit: 1,
+						UserId: userId
+					});
+					id = found.data?.[0]?.Id ?? '';
+				}
+				if (!id) return [];
+				const item = await this.getItem(id, userId);
+				if (!item.data) return [];
+				if (
+					['BoxSet', 'Playlist', 'CollectionFolder', 'Folder', 'UserView'].includes(
+						item.data.Type ?? ''
+					)
+				) {
+					const children = await this.getItems({
+						ParentId: id,
+						Recursive: true,
+						IncludeItemTypes: types,
+						Fields: 'Overview,RemoteTrailers,LocalTrailerCount,Genres,MediaSources',
+						UserId: userId
+					});
+					return children.data ?? [];
+				} else if (item.data.Type === 'Movie' || item.data.Type === 'Series') {
+					return [item.data];
+				}
+				return [];
+			})
+		);
+		const items: BaseItemDto[] = resolved.flat();
 
 		if (selection.genres.length || selection.tags.length) {
 			const filtered = await this.getItems({
@@ -265,6 +268,20 @@ export class MediaBarEnhancedAdapter {
 				UserId: userId
 			});
 			items = result.data ?? [];
+		}
+
+		if (!config.includeWatchedContent) {
+			items = items.filter((item) => item.UserData?.Played !== true);
+		}
+		if (config.applyLimitsToCustomIds || selection.ids.length === 0) {
+			let movieCount = 0;
+			let seriesCount = 0;
+			items = items.filter((item) => {
+				if (item.Type === 'Movie') return ++movieCount <= config.maxMovies;
+				if (item.Type === 'Series') return ++seriesCount <= config.maxTvShows;
+				return false;
+			});
+			items = items.slice(0, config.maxItems);
 		}
 
 		return {

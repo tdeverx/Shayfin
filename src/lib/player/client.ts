@@ -72,6 +72,7 @@ export class JellyfinPlaybackClient {
 		const query = new URLSearchParams({ userId: request.userId });
 		const body = {
 			UserId: request.userId,
+			MaxStreamingBitrate: request.deviceProfile.MaxStreamingBitrate,
 			StartTimeTicks: request.startTimeTicks,
 			AudioStreamIndex: request.audioStreamIndex ?? null,
 			SubtitleStreamIndex: request.subtitleStreamIndex ?? null,

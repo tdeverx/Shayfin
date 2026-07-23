@@ -61,9 +61,59 @@ export async function loadEpisodes(
 	return response.data.Items ?? [];
 }
 
+export async function loadSeriesNextUp(
+	api: Api,
+	userId: string,
+	seriesId: string
+): Promise<BaseItemDto | null> {
+	const nextUp = await getTvShowsApi(api).getNextUp({
+		userId,
+		seriesId,
+		limit: 1,
+		fields: DETAIL_FIELDS,
+		enableUserData: true,
+		enableImages: true,
+		imageTypeLimit: 2
+	});
+	if (nextUp.data.Items?.[0]) return nextUp.data.Items[0];
+	const first = await getTvShowsApi(api).getEpisodes({
+		seriesId,
+		userId,
+		limit: 1,
+		fields: DETAIL_FIELDS,
+		enableUserData: true,
+		enableImages: true,
+		imageTypeLimit: 2,
+		sortBy: ItemSortBy.AiredEpisodeOrder
+	});
+	return first.data.Items?.[0] ?? null;
+}
+
 export function nextEpisodeId(episodes: BaseItemDto[], currentId: string): string | null {
 	const currentIndex = episodes.findIndex((episode) => episode.Id === currentId);
 	return currentIndex >= 0 ? (episodes[currentIndex + 1]?.Id ?? null) : null;
+}
+
+export async function loadFollowingEpisode(
+	api: Api,
+	userId: string,
+	seriesId: string,
+	currentId: string
+): Promise<BaseItemDto | null> {
+	const response = await getTvShowsApi(api).getEpisodes({
+		seriesId,
+		userId,
+		startItemId: currentId,
+		limit: 2,
+		fields: DETAIL_FIELDS,
+		enableUserData: true,
+		enableImages: true,
+		imageTypeLimit: 2,
+		sortBy: ItemSortBy.AiredEpisodeOrder
+	});
+	const episodes = response.data.Items ?? [];
+	const currentIndex = episodes.findIndex((episode) => episode.Id === currentId);
+	return currentIndex >= 0 ? (episodes[currentIndex + 1] ?? null) : (episodes[1] ?? null);
 }
 
 export async function loadSeriesDetail(
@@ -75,18 +125,9 @@ export async function loadSeriesDetail(
 		loadItemDetail(api, userId, seriesId),
 		loadSeasons(api, userId, seriesId)
 	]);
-	const episodeLists = await Promise.all(
-		seasons.map(async (season) => ({
-			seasonId: season.Id,
-			episodes: season.Id ? await loadEpisodes(api, userId, seriesId, season.Id) : []
-		}))
-	);
-
 	return {
 		item,
 		seasons,
-		episodesBySeason: Object.fromEntries(
-			episodeLists.flatMap(({ seasonId, episodes }) => (seasonId ? [[seasonId, episodes]] : []))
-		)
+		episodesBySeason: {}
 	};
 }

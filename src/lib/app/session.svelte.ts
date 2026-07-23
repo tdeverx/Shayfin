@@ -4,8 +4,16 @@ import type { UserDto } from '@jellyfin/sdk/lib/generated-client/models/user-dto
 import { getSessionApi } from '@jellyfin/sdk/lib/utils/api/session-api';
 import { getUserApi } from '@jellyfin/sdk/lib/utils/api/user-api';
 import { getUserViewsApi } from '@jellyfin/sdk/lib/utils/api/user-views-api';
+import { getOrCreateDeviceId } from '$lib/jellyfin/storage';
 import type { AppUser, MediaNavigationItem } from './models';
 import { clearDataCache } from './data-cache';
+import {
+	DEFAULT_BROWSER_PREFERENCES,
+	loadBrowserPreferences,
+	saveBrowserPreferences,
+	type BrowserPreferencesV1,
+	type PlaybackQuality
+} from './preferences';
 
 export interface BootstrapState {
 	configured: boolean;
@@ -22,15 +30,9 @@ export interface BootstrapState {
 	};
 }
 
-const DEVICE_KEY = 'shayfin:device-id';
-
 function makeDeviceId(): string {
 	if (!browser) return 'shayfin-server-render';
-	const existing = localStorage.getItem(DEVICE_KEY);
-	if (existing) return existing;
-	const generated = crypto.randomUUID();
-	localStorage.setItem(DEVICE_KEY, generated);
-	return generated;
+	return getOrCreateDeviceId();
 }
 
 function tokenKey(serverId: string): string {
@@ -63,6 +65,7 @@ class SessionState {
 	loading = $state(true);
 	error = $state<string | null>(null);
 	themeAudioEnabled = $state(false);
+	preferences = $state<BrowserPreferencesV1>(structuredClone(DEFAULT_BROWSER_PREFERENCES));
 	private initialized?: Promise<void>;
 
 	get accessToken(): string | null {
@@ -142,10 +145,19 @@ class SessionState {
 		this.user = toAppUser(this.bootstrap.jellyfin.publicUrl, user);
 		if (browser) {
 			localStorage.setItem(tokenKey(this.bootstrap.jellyfin.server.id), api.accessToken);
-			this.themeAudioEnabled =
-				localStorage.getItem(themeAudioKey(this.bootstrap.jellyfin.server.id, user.Id)) !== 'false';
+			this.preferences = loadBrowserPreferences(
+				this.bootstrap.jellyfin.server.id,
+				user.Id,
+				localStorage.getItem(themeAudioKey(this.bootstrap.jellyfin.server.id, user.Id))
+			);
+			this.themeAudioEnabled = this.preferences.experience.themeAudio;
+			this.persistPreferences();
 		}
-		await this.loadNavigation();
+		// Navigation is enhancement data. Do not make every authenticated route wait for
+		// an extra UserViews round-trip before it can render its own required content.
+		void this.loadNavigation().catch(() => {
+			// Keep Home available when a server does not expose library views yet.
+		});
 	}
 
 	private async loadNavigation(): Promise<void> {
@@ -164,11 +176,23 @@ class SessionState {
 
 	setThemeAudio(enabled: boolean): void {
 		this.themeAudioEnabled = enabled;
+		this.preferences.experience.themeAudio = enabled;
+		this.persistPreferences();
+	}
+
+	setPlaybackQuality(quality: PlaybackQuality): void {
+		this.preferences.playback.quality = quality;
+		this.persistPreferences();
+	}
+
+	setAutoplayNext(enabled: boolean): void {
+		this.preferences.playback.autoplayNext = enabled;
+		this.persistPreferences();
+	}
+
+	private persistPreferences(): void {
 		if (browser && this.bootstrap?.jellyfin && this.user?.id) {
-			localStorage.setItem(
-				themeAudioKey(this.bootstrap.jellyfin.server.id, this.user.id),
-				String(enabled)
-			);
+			saveBrowserPreferences(this.bootstrap.jellyfin.server.id, this.user.id, this.preferences);
 		}
 	}
 
@@ -182,6 +206,8 @@ class SessionState {
 			this.api = null;
 			this.userDto = null;
 			this.user = null;
+			this.preferences = structuredClone(DEFAULT_BROWSER_PREFERENCES);
+			this.themeAudioEnabled = false;
 			this.navigation = [{ id: 'home', label: 'Home', href: '/home' }];
 		}
 	}

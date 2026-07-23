@@ -1,4 +1,4 @@
-import type { AppConfig, IntegrationName, StoredIntegration } from './config';
+import type { AppConfig, StoredIntegration, StoredServarrInstance } from './config';
 
 export interface MaskedIntegration {
 	enabled: boolean;
@@ -18,6 +18,24 @@ export function maskIntegration(integration: StoredIntegration | undefined): Mas
 	};
 }
 
+export interface MaskedServarrInstance {
+	id: string;
+	label: string;
+	enabled: boolean;
+	url: string;
+	apiKeyConfigured: boolean;
+}
+
+export function maskServarrInstance(instance: StoredServarrInstance): MaskedServarrInstance {
+	return {
+		id: instance.id,
+		label: instance.label,
+		enabled: instance.enabled,
+		url: instance.url,
+		apiKeyConfigured: instance.apiKey !== undefined
+	};
+}
+
 export function maskAdminSettings(config: AppConfig) {
 	return {
 		jellyfin: config.jellyfin
@@ -31,21 +49,17 @@ export function maskAdminSettings(config: AppConfig) {
 			: null,
 		integrations: {
 			seerr: maskIntegration(config.integrations.seerr),
-			sonarr: maskIntegration(config.integrations.sonarr),
-			radarr: maskIntegration(config.integrations.radarr)
+			sonarr: config.integrations.sonarr.map(maskServarrInstance),
+			radarr: config.integrations.radarr.map(maskServarrInstance)
 		},
 		plugins: {
-			homeScreenSections: { enabled: config.plugins.homeScreenSections?.enabled ?? true },
-			mediaBarEnhanced: { enabled: config.plugins.mediaBarEnhanced?.enabled ?? true },
+			homeScreenSections: { enabled: config.plugins.homeScreenSections?.enabled ?? false },
+			mediaBarEnhanced: { enabled: config.plugins.mediaBarEnhanced?.enabled ?? false },
 			achievementBadges: {
-				enabled: config.plugins.achievementBadges?.enabled ?? true,
+				enabled: config.plugins.achievementBadges?.enabled ?? false,
 				unlockNotifications: config.plugins.achievementBadges?.unlockNotifications ?? true
 			},
-			getAvatar: { enabled: config.plugins.getAvatar?.enabled ?? true }
+			getAvatar: { enabled: config.plugins.getAvatar?.enabled ?? false }
 		}
 	};
-}
-
-export function integrationLabel(name: IntegrationName): string {
-	return name === 'seerr' ? 'Seerr' : name === 'sonarr' ? 'Sonarr' : 'Radarr';
 }

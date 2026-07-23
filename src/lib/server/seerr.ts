@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { ConfigStore } from './config';
 import type { NormalizedMediaRequest, SupportedMediaType, UnifiedSearchResult } from './contracts';
 import { ApiError } from './errors';
-import { integrationJson, requireIntegration, type ResolvedIntegration } from './integrations';
+import { integrationJson, requireSeerrIntegration, type ResolvedIntegration } from './integrations';
 
 const SeerrUserSchema = z.object({ id: z.number().int().positive() });
 
@@ -172,7 +172,7 @@ export async function resolveSeerrUserId(
 	jellyfinUserId: string,
 	fetcher: typeof fetch = fetch
 ): Promise<number> {
-	const integration = await requireIntegration(store, 'seerr');
+	const integration = await requireSeerrIntegration(store);
 	const existing = integration.userMappings?.[jellyfinUserId];
 	if (existing) return existing;
 

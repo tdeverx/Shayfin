@@ -1,6 +1,6 @@
 export { default as VideoPlayer } from './VideoPlayer.svelte';
 export { JellyfinPlaybackClient } from './client.js';
-export { createBrowserDeviceProfile } from './device-profile.js';
+export { createBrowserDeviceProfile, qualityBitrate } from './device-profile.js';
 export {
 	addAccessToken,
 	buildPlaybackProgressPayload,
@@ -27,6 +27,8 @@ export type {
 	PlayerMediaSource,
 	PlayerMediaStream,
 	PlayerPlaybackInfoResponse,
+	NextUpModel,
+	PlayerPresentation,
 	SubtitleTrack,
 	SupportedMediaSegmentType,
 	VideoPlayerProps

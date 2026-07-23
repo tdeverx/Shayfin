@@ -1,19 +1,12 @@
-import type { ConfigStore, IntegrationName, StoredIntegration } from './config';
+import type { ConfigStore, StoredIntegration } from './config';
 import { ApiError } from './errors';
 
 export type ResolvedIntegration = Omit<StoredIntegration, 'apiKey'> & { apiKey: string };
 
-export async function requireIntegration(
-	store: ConfigStore,
-	name: IntegrationName
-): Promise<ResolvedIntegration> {
-	const integration = await store.resolveIntegration(name);
+export async function requireSeerrIntegration(store: ConfigStore): Promise<ResolvedIntegration> {
+	const integration = await store.resolveSeerrIntegration();
 	if (!integration) {
-		throw new ApiError(
-			424,
-			`${name}_not_configured`,
-			`${name[0].toUpperCase()}${name.slice(1)} is not configured.`
-		);
+		throw new ApiError(424, 'seerr_not_configured', 'Seerr is not configured.');
 	}
 	return integration;
 }

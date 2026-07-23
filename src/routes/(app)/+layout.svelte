@@ -1,21 +1,21 @@
 <script lang="ts">
-	import { goto, onNavigate } from '$app/navigation';
-	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import type { ResolvedPathname } from '$app/types';
 	import { onMount } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { AchievementBadgesAdapter, searchLocalMedia, dedupeAgainstLocal } from '$lib/jellyfin';
+	import { pluginEnabled } from '$lib/app/plugin-capabilities';
 	import AppShell from '$lib/components/app/app-shell.svelte';
 	import RequestDialog from '$lib/components/app/request-dialog.svelte';
 	import SearchCommand from '$lib/components/app/search-command.svelte';
-	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { session } from '$lib/app/session.svelte';
 	import { themeAudio } from '$lib/app/theme-audio';
 	import { imageForItem } from '$lib/app/media';
+	import { itemEntityKey, markEntitiesStale, markQueriesStale } from '$lib/app/data-cache';
 	import type { UnifiedSearchItem } from '$lib/app/models';
-	import type { ProviderIdentifiable } from '$lib/jellyfin';
+	import { subscribeToInvalidations, type ProviderIdentifiable } from '$lib/jellyfin';
 	import type { UnifiedSearchResult } from '$lib/server/contracts';
 
 	let { children }: { children: Snippet } = $props();
@@ -47,19 +47,24 @@
 		if (ready && session.user && !session.themeAudioEnabled) themeAudio.fadeAndStop();
 	});
 
-	onNavigate((navigation) => {
-		if (
-			!browser ||
-			!document.startViewTransition ||
-			matchMedia('(prefers-reduced-motion: reduce)').matches
-		)
-			return;
-		return new Promise<void>((resolveTransition) => {
-			document.startViewTransition(async () => {
-				resolveTransition();
-				await navigation.complete;
-			});
+	$effect(() => {
+		const api = session.api;
+		const userId = session.user?.id;
+		const serverId = session.bootstrap?.jellyfin?.server.id;
+		if (!ready || !api || !userId) return;
+		const subscription = subscribeToInvalidations(api, (event) => {
+			if (event.itemIds.length) {
+				markEntitiesStale(event.itemIds.map((id) => itemEntityKey(serverId, userId, id)));
+			}
+			if (
+				event.type === 'LibraryChanged' ||
+				event.type === 'UserDataChanged' ||
+				event.type === 'UserUpdated'
+			) {
+				markQueriesStale((key) => key.startsWith(`${serverId ?? 'server'}:${userId}:`));
+			}
 		});
+		return () => subscription.close();
 	});
 
 	$effect(() => {
@@ -69,13 +74,16 @@
 			!ready ||
 			!api ||
 			!userId ||
-			session.bootstrap?.plugins?.achievementBadges.enabled === false ||
+			!pluginEnabled(session.bootstrap, 'achievementBadges') ||
 			session.bootstrap?.plugins?.achievementBadges.unlockNotifications === false
 		)
 			return;
 		let active = true;
+		let pluginPreferences: Awaited<ReturnType<AchievementBadgesAdapter['getPreferences']>>['data'];
 		const poll = async () => {
-			const result = await new AchievementBadgesAdapter(api).getRecent(userId, 20);
+			const adapter = new AchievementBadgesAdapter(api);
+			pluginPreferences ??= (await adapter.getPreferences(userId)).data;
+			const result = await adapter.getRecent(userId, 20);
 			if (!active || result.status !== 'available' || !result.data) return;
 			const current = new Set(
 				result.data.filter((badge) => badge.unlocked).map((badge) => badge.id)
@@ -83,7 +91,9 @@
 			if (knownAchievementIds) {
 				for (const badge of result.data) {
 					if (badge.unlocked && !knownAchievementIds.has(badge.id)) {
-						toast.success('Achievement unlocked', { description: badge.title });
+						if (pluginPreferences?.toastEnabled !== false) {
+							toast.success('Achievement unlocked', { description: badge.title });
+						}
 					}
 				}
 			}
@@ -232,27 +242,12 @@
 		headers={session.authorizationHeaders}
 	/>
 {:else}
-	<div class="flex min-h-screen flex-col gap-8 overflow-x-hidden">
-		<div class="relative h-[clamp(28rem,62svh,40rem)] w-[100dvw] overflow-hidden bg-background">
-			<Skeleton class="absolute inset-0 size-full rounded-none" />
+	<div class="grid min-h-screen place-items-center bg-background px-6 text-center">
+		<div class="space-y-2">
 			<div
-				class="absolute inset-x-0 bottom-0 h-4/5 bg-gradient-to-t from-background via-background/60 to-transparent"
+				class="mx-auto size-8 animate-pulse rounded-full border-2 border-primary border-t-transparent"
 			></div>
-			<div class="relative flex size-full items-end px-6 pb-10">
-				<div class="flex w-full max-w-xl flex-col gap-4">
-					<Skeleton class="h-20 w-72 max-w-[75vw]" />
-					<Skeleton class="h-6 w-48" />
-					<Skeleton class="h-5 w-80 max-w-[80vw]" />
-				</div>
-			</div>
-		</div>
-		<div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 pb-12">
-			<Skeleton class="h-6 w-48" />
-			<div class="grid grid-cols-2 gap-4 md:grid-cols-4">
-				{#each [0, 1, 2, 3] as skeleton (skeleton)}<Skeleton
-						class="aspect-video rounded-4xl"
-					/>{/each}
-			</div>
+			<p class="text-sm text-muted-foreground">Opening Shayfin…</p>
 		</div>
 	</div>
 {/if}

@@ -7,8 +7,6 @@
 		MediaBarEnhancedAdapter,
 		loadDefaultHome,
 		resolveHeroTrailer,
-		selectFallbackHeroSection,
-		subscribeToInvalidations,
 		type HeroTrailer,
 		type HomeSectionModel
 	} from '$lib/jellyfin';
@@ -19,7 +17,8 @@
 	import * as Empty from '$lib/components/ui/empty';
 	import { Skeleton } from '$lib/components/ui/skeleton';
 	import { session } from '$lib/app/session.svelte';
-	import { deleteCache, readCache, userCacheKey, writeCache } from '$lib/app/data-cache';
+	import { pluginEnabled } from '$lib/app/plugin-capabilities';
+	import { readCache, userCacheKey, writeCache } from '$lib/app/data-cache';
 	import { toMediaCard, toSpotlight } from '$lib/app/media';
 	import type { DownloadModel, MediaSectionModel } from '$lib/app/models';
 	import type { DownloadProgress } from '$lib/server/contracts';
@@ -35,8 +34,8 @@
 	let trailerOverrides = $state<Record<string, string>>({});
 	let preferLocalTrailers = $state(false);
 	let onlyLocalTrailers = $state(false);
+	let heroIntervalMs = $state(10_000);
 	let heroLoadToken = 0;
-	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 	let homeCacheKey = '';
 	const HOME_CACHE_MS = 2 * 60_000;
 
@@ -47,6 +46,7 @@
 		trailerOverrides: Record<string, string>;
 		preferLocalTrailers: boolean;
 		onlyLocalTrailers: boolean;
+		heroIntervalMs: number;
 	}
 
 	let heroModels = $derived.by(() => {
@@ -75,6 +75,8 @@
 					backdropUrl: section.items
 						.map((item) => toMediaCard(api, item, 'landscape')?.backdropUrl)
 						.find(Boolean),
+					displayTitleText: section.displayTitleText,
+					showDetailsMenu: section.showDetailsMenu,
 					items: section.items.flatMap((item) => {
 						const card = toMediaCard(
 							api,
@@ -99,6 +101,26 @@
 		trailerOverrides = snapshot.trailerOverrides;
 		preferLocalTrailers = snapshot.preferLocalTrailers;
 		onlyLocalTrailers = snapshot.onlyLocalTrailers;
+		heroIntervalMs = snapshot.heroIntervalMs ?? 10_000;
+	}
+
+	function applyHero(mediaBar?: Awaited<ReturnType<MediaBarEnhancedAdapter['loadHero']>>['data']) {
+		if (mediaBar?.items.length) {
+			heroItems = mediaBar.items;
+			heroSourceSectionId = null;
+			trailerOverrides = mediaBar.trailerOverrides;
+			preferLocalTrailers = mediaBar.preferLocalTrailers;
+			onlyLocalTrailers = mediaBar.onlyLocalTrailers;
+			heroIntervalMs = mediaBar.intervalMs;
+		} else {
+			heroItems = [];
+			heroSourceSectionId = null;
+			trailerOverrides = {};
+			preferLocalTrailers = false;
+			onlyLocalTrailers = false;
+			heroIntervalMs = 10_000;
+		}
+		if (heroItems[0]?.Id) void selectHeroItem(heroItems[0].Id);
 	}
 
 	async function loadHome(background = false) {
@@ -108,38 +130,31 @@
 		if (!background) error = null;
 		homeCacheKey ||= userCacheKey(session.bootstrap?.jellyfin?.server.id, userId, 'home');
 		try {
-			const flags = session.bootstrap?.plugins;
-			const [plugin, mediaBar] = await Promise.all([
-				flags?.homeScreenSections.enabled === false
-					? Promise.resolve({ status: 'unavailable' as const, data: undefined })
-					: new HomeScreenSectionsAdapter(api).loadHome(userId, navigator.language),
-				flags?.mediaBarEnhanced.enabled === false
-					? Promise.resolve({ status: 'unavailable' as const, data: undefined })
-					: new MediaBarEnhancedAdapter(api).loadHero(userId)
-			]);
-			sections = plugin.data?.length ? plugin.data : await loadDefaultHome(api, userId);
-			if (mediaBar.data?.items.length) {
-				heroItems = mediaBar.data.items;
-				heroSourceSectionId = null;
-				trailerOverrides = mediaBar.data.trailerOverrides;
-				preferLocalTrailers = mediaBar.data.preferLocalTrailers;
-				onlyLocalTrailers = mediaBar.data.onlyLocalTrailers;
-			} else {
-				const fallback = selectFallbackHeroSection(sections);
-				heroItems = fallback?.items ?? [];
-				heroSourceSectionId = fallback?.id ?? null;
-				trailerOverrides = {};
-				preferLocalTrailers = false;
-				onlyLocalTrailers = false;
-			}
-			if (heroItems[0]?.Id) await selectHeroItem(heroItems[0].Id);
+			const defaultHome = loadDefaultHome(api, userId);
+			const plugin = pluginEnabled(session.bootstrap, 'homeScreenSections')
+				? new HomeScreenSectionsAdapter(api).loadHome(userId, navigator.language)
+				: Promise.resolve({ status: 'unavailable' as const, data: undefined });
+			const mediaBar = pluginEnabled(session.bootstrap, 'mediaBarEnhanced')
+				? new MediaBarEnhancedAdapter(api).loadHero(userId)
+				: Promise.resolve({ status: 'unavailable' as const, data: undefined });
+
+			// Native Jellyfin content is the reliable first paint. Plugin rows and a
+			// configured hero enrich it when they arrive, rather than holding it hostage.
+			const nativeSections = await defaultHome;
+			sections = nativeSections;
+			applyHero();
+
+			const [pluginResult, mediaBarResult] = await Promise.all([plugin, mediaBar]);
+			sections = pluginResult.data?.length ? pluginResult.data : nativeSections;
+			applyHero(mediaBarResult.data);
 			writeCache<HomeCacheData>(homeCacheKey, {
 				sections,
 				heroItems,
 				heroSourceSectionId,
 				trailerOverrides,
 				preferLocalTrailers,
-				onlyLocalTrailers
+				onlyLocalTrailers,
+				heroIntervalMs
 			});
 		} catch (reason) {
 			if (!background)
@@ -204,24 +219,15 @@
 			void loadHome();
 		}
 		void loadDownloads();
-		const subscription = session.api
-			? subscribeToInvalidations(session.api, () => {
-					clearTimeout(refreshTimer);
-					if (homeCacheKey) deleteCache(homeCacheKey);
-					refreshTimer = setTimeout(() => void loadHome(true), 500);
-				})
-			: undefined;
-		let poll = setInterval(() => void loadDownloads(), document.hidden ? 60_000 : 15_000);
+		let poll = setInterval(() => void loadDownloads(), document.hidden ? 60_000 : 20_000);
 		const visibility = () => {
 			clearInterval(poll);
-			poll = setInterval(() => void loadDownloads(), document.hidden ? 60_000 : 15_000);
+			poll = setInterval(() => void loadDownloads(), document.hidden ? 60_000 : 20_000);
 			void loadDownloads();
 		};
 		document.addEventListener('visibilitychange', visibility);
 		return () => {
-			subscription?.close();
 			clearInterval(poll);
-			clearTimeout(refreshTimer);
 			document.removeEventListener('visibilitychange', visibility);
 		};
 	});
@@ -231,25 +237,29 @@
 
 {#if loading}
 	<div class="flex flex-col gap-9">
-		<div
-			class="relative left-1/2 -mt-20 h-[clamp(28rem,62svh,40rem)] w-[100dvw] -translate-x-1/2 overflow-hidden bg-background"
-		>
-			<Skeleton class="absolute inset-0 size-full rounded-none" />
-			<div
-				class="absolute inset-x-0 bottom-0 h-4/5 bg-gradient-to-t from-background via-background/60 to-transparent"
-			></div>
-			<div
-				class="relative mx-auto flex size-full max-w-[110rem] items-end px-4 pt-28 pb-8 sm:px-6 sm:pb-10 lg:px-8"
+		{#if pluginEnabled(session.bootstrap, 'mediaBarEnhanced')}<div
+				role="status"
+				aria-label="Loading featured media"
+				class="relative left-1/2 -mt-20 h-[clamp(28rem,62svh,40rem)] w-[100dvw] -translate-x-1/2 overflow-hidden bg-background"
 			>
-				<div class="flex w-full max-w-xl flex-col gap-4">
-					<Skeleton class="h-20 w-72 max-w-[75vw]" />
-					<div class="flex gap-2">
-						<Skeleton class="h-6 w-14" /><Skeleton class="h-6 w-12" /><Skeleton class="h-6 w-16" />
+				<Skeleton class="absolute inset-0 size-full rounded-none" />
+				<div
+					class="absolute inset-x-0 bottom-0 h-4/5 bg-gradient-to-t from-background via-background/60 to-transparent"
+				></div>
+				<div
+					class="relative mx-auto flex size-full max-w-[110rem] items-end px-4 pt-28 pb-8 sm:px-6 sm:pb-10 lg:px-8"
+				>
+					<div class="flex w-full max-w-xl flex-col gap-4">
+						<Skeleton class="h-20 w-72 max-w-[75vw]" />
+						<div class="flex gap-2">
+							<Skeleton class="h-6 w-14" /><Skeleton class="h-6 w-12" /><Skeleton
+								class="h-6 w-16"
+							/>
+						</div>
+						<Skeleton class="h-5 w-80 max-w-[80vw]" />
 					</div>
-					<Skeleton class="h-5 w-80 max-w-[80vw]" />
 				</div>
-			</div>
-		</div>
+			</div>{/if}
 		{#each [0, 1] as row (row)}
 			<div class="flex flex-col gap-3">
 				<Skeleton class="h-6 w-48" />
@@ -279,6 +289,7 @@
 	<div class="space-y-9">
 		{#if heroModels.length}<HeroCarousel
 				items={heroModels}
+				intervalMs={heroIntervalMs}
 				trailer={heroTrailerItemId ? heroTrailer : null}
 				onItemChange={selectHeroItem}
 			/>{/if}

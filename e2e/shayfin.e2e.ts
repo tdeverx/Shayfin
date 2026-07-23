@@ -51,8 +51,10 @@ test.describe('authenticated media shell', () => {
 		await page.getByRole('menuitem', { name: 'Settings' }).click();
 		await expect(page).toHaveURL(/\/settings$/);
 		await expect(page.locator('[data-slot="sidebar-wrapper"]')).toBeVisible();
-		await expect(page.getByRole('link', { name: 'Connections' })).toBeVisible();
-		await expect(page.getByRole('link', { name: 'Integrations' })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Jellyfin' })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Seerr' })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Sonarr' })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Plugins' })).toBeVisible();
 		await expect(page.getByText('Jellyfin connected')).toBeVisible();
 		await expect(page.getByText('Server 10.11.11')).toBeVisible();
 		const sidebarToggle = page.getByRole('button', { name: 'Toggle settings sidebar' });
@@ -69,36 +71,14 @@ test.describe('authenticated media shell', () => {
 		);
 	});
 
-	test('falls back to the restrained Jellyfin home when Home Screen Sections is absent', async ({
+	test('keeps native Jellyfin rows and no hero when Media Bar Enhanced is unavailable', async ({
 		page
 	}) => {
 		await mockAuthenticatedApp(page);
 		await page.goto('/home');
 
-		await expect(page.getByRole('heading', { name: 'Nebula Run' })).toBeVisible();
-		await expect(page.getByText('Beyond the mapped edge.')).toBeVisible();
-		const description = page.getByText(
-			'A salvage crew follows a quiet signal beyond the mapped edge of space.'
-		);
-		await expect(description).toHaveCount(1);
-		await expect(description).not.toBeVisible();
-		const hero = page.getByRole('region', { name: 'Nebula Run' });
-		const play = hero.getByRole('link', { name: 'Play' });
-		const reveal = hero.locator('[data-slot="hero-reveal"]');
-		await expect
-			.poll(() => reveal.evaluate((element) => getComputedStyle(element).opacity))
-			.toBe('0');
-		const hiddenActionsHeight = await reveal.evaluate(
-			(element) => element.getBoundingClientRect().height
-		);
-		expect(hiddenActionsHeight).toBe(0);
-		await page.getByRole('region', { name: 'Featured media' }).hover();
-		await expect
-			.poll(() => reveal.evaluate((element) => getComputedStyle(element).opacity))
-			.toBe('1');
-		await expect(play).toBeVisible();
-		await expect(description).toBeVisible();
-		await expect(hero.getByRole('link', { name: 'Details' })).toBeVisible();
+		await expect(page.getByRole('region', { name: 'Featured media' })).toHaveCount(0);
+		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Continue watching' })).toBeVisible();
 		await expect(page.getByText('The Arrival')).toBeVisible();
 		await expect(page.getByRole('heading', { name: 'Next up' })).toBeVisible();
@@ -107,43 +87,25 @@ test.describe('authenticated media shell', () => {
 		await expect(page.getByRole('heading', { name: 'Favorites' })).toBeVisible();
 	});
 
-	test('uses the whole first editorial row as the hero and skips continue watching', async ({
-		page
-	}) => {
+	test('uses Home Screen Sections rows without inventing a non-plugin hero', async ({ page }) => {
 		await mockAuthenticatedApp(page, { homeSectionsAvailable: true });
 		await page.goto('/home');
 
-		await expect(page.getByRole('heading', { name: 'Signal Fire' })).toBeVisible();
+		await expect(page.getByRole('region', { name: 'Featured media' })).toHaveCount(0);
 		await expect(page.getByRole('region', { name: 'Continue Watching / Next Up' })).toBeVisible();
-		await expect(page.getByRole('region', { name: 'Staff Picks' })).toHaveCount(0);
-		const next = page.getByRole('button', { name: 'Next featured item', includeHidden: true });
-		const previous = page.getByRole('button', {
-			name: 'Previous featured item',
-			includeHidden: true
-		});
-		await expect(next).toHaveCount(1);
-		await expect(previous).toHaveCount(1);
-		await expect
-			.poll(() => next.evaluate((element) => getComputedStyle(element).opacity))
-			.toBe('0');
-		await page.getByRole('region', { name: 'Featured media' }).hover();
-		await expect
-			.poll(() => next.evaluate((element) => getComputedStyle(element).opacity))
-			.toBe('1');
-		await next.click();
-		await expect(page.getByRole('heading', { name: 'Quiet Harbor' })).toBeVisible();
+		await expect(page.getByRole('region', { name: 'Staff Picks' })).toBeVisible();
 	});
 
-	test('holds an image-only hero for the full rotation interval', async ({ page }) => {
+	test('does not reserve a hero while Media Bar Enhanced is unavailable', async ({ page }) => {
 		await page.clock.install();
 		await mockAuthenticatedApp(page, { homeSectionsAvailable: true });
 		await page.goto('/home');
 
-		await expect(page.getByRole('heading', { name: 'Signal Fire' })).toBeVisible();
+		await expect(page.getByRole('region', { name: 'Featured media' })).toHaveCount(0);
 		await page.clock.fastForward(9_000);
-		await expect(page.getByRole('heading', { name: 'Signal Fire' })).toBeVisible();
+		await expect(page.getByRole('region', { name: 'Featured media' })).toHaveCount(0);
 		await page.clock.fastForward(1_100);
-		await expect(page.getByRole('heading', { name: 'Quiet Harbor' })).toBeVisible();
+		await expect(page.getByRole('region', { name: 'Featured media' })).toHaveCount(0);
 	});
 
 	test('browses and filters the shared movie library', async ({ page }) => {
@@ -205,8 +167,9 @@ test.describe('authenticated media shell', () => {
 			const url = new URL(request.url());
 			if (
 				url.pathname.endsWith('/Items') &&
-				url.searchParams.get('parentId') === 'view-movies' &&
-				url.searchParams.get('sortBy')?.toLowerCase().includes('sortname')
+				url.searchParams.get('includeItemTypes')?.toLowerCase().includes('movie') &&
+				url.searchParams.get('sortBy')?.toLowerCase().includes('sortname') &&
+				url.searchParams.get('limit') === '60'
 			)
 				movieLibraryLoads += 1;
 		});
@@ -216,7 +179,7 @@ test.describe('authenticated media shell', () => {
 		expect(movieLibraryLoads).toBe(1);
 
 		await page.getByRole('radio', { name: 'Home' }).click();
-		await expect(page.getByRole('heading', { name: 'Nebula Run' })).toBeVisible();
+		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
 		await page.getByRole('radio', { name: 'Movies' }).click();
 		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
 		expect(movieLibraryLoads).toBe(1);
@@ -233,10 +196,27 @@ test.describe('authenticated media shell', () => {
 		await expect(page).toHaveURL(/\/home$/);
 	});
 
+	test('opens details from a media card without a blank SPA transition', async ({ page }) => {
+		const runtimeErrors: string[] = [];
+		page.on('console', (message) => {
+			if (message.type() === 'error') runtimeErrors.push(message.text());
+		});
+		await mockAuthenticatedApp(page);
+		await page.goto('/movies');
+		await page.getByRole('link', { name: 'Nebula Run' }).click();
+		await expect(page).toHaveURL(/\/item\/movie-featured$/);
+		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
+		expect(
+			runtimeErrors.filter((message) =>
+				/effect_update_depth_exceeded|maximum update depth/i.test(message)
+			)
+		).toEqual([]);
+	});
+
 	test('preserves local Cmd/Ctrl+K search when Seerr is unavailable', async ({ page }) => {
 		await mockAuthenticatedApp(page, { seerrUnavailable: true });
 		await page.goto('/home');
-		await expect(page.getByRole('heading', { name: 'Nebula Run' })).toBeVisible();
+		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
 
 		await page.keyboard.press('Control+K');
 		const search = page.getByRole('dialog', { name: 'Search Shayfin' });
@@ -272,7 +252,7 @@ test.describe('authenticated media shell', () => {
 			]
 		});
 		await page.goto('/home');
-		await expect(page.getByRole('heading', { name: 'Nebula Run' })).toBeVisible();
+		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
 
 		await page.keyboard.press('Control+K');
 		const search = page.getByRole('dialog', { name: 'Search Shayfin' });
@@ -302,7 +282,7 @@ test.describe('authenticated media shell', () => {
 			requestBodies
 		});
 		await page.goto('/home');
-		await expect(page.getByRole('heading', { name: 'Nebula Run' })).toBeVisible();
+		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
 
 		await page.keyboard.press('Control+K');
 		const search = page.getByRole('dialog', { name: 'Search Shayfin' });
@@ -336,7 +316,7 @@ test.describe('authenticated media shell', () => {
 			}
 		});
 		await page.goto('/home');
-		await expect(page.getByRole('heading', { name: 'Nebula Run' })).toBeVisible();
+		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
 
 		await page.keyboard.press('Control+K');
 		const search = page.getByRole('dialog', { name: 'Search Shayfin' });
@@ -374,14 +354,12 @@ test.describe('profile capabilities', () => {
 			page.getByRole('region', { name: 'Nora Viewer' }).locator('img[src*="movie-featured"]')
 		).toBeVisible();
 		await expect(page.locator(`img[src*="/Users/user-1/Images/Primary"]`).last()).toBeVisible();
-		await expect(page.getByRole('heading', { name: 'Recently played' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Recently watched' })).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Nebula Run' })).toBeVisible();
-		await expect(page.getByRole('tab', { name: 'Requests' })).toHaveCount(0);
-		await expect(page.getByRole('tab', { name: 'Achievements' })).toHaveCount(0);
+		await expect(page.getByRole('heading', { name: 'Requests' })).toHaveCount(0);
 		await expect(page.getByRole('button', { name: 'Choose avatar' })).toHaveCount(0);
 		await expect(page.getByRole('heading', { name: 'Achievement summary' })).toHaveCount(0);
 
-		await page.getByRole('tab', { name: 'Favorites' }).click();
 		await expect(page.getByText('Quiet Harbor')).toBeVisible();
 	});
 
@@ -407,10 +385,10 @@ test.describe('profile capabilities', () => {
 		});
 		await page.goto('/profile');
 
-		await expect(page.getByRole('heading', { name: 'Equipped badges' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Pinned achievements' })).toBeVisible();
 		await expect(page.getByText('First Flight').first()).toBeVisible();
 
-		await page.getByRole('tab', { name: 'Requests' }).click();
+		await expect(page.getByRole('heading', { name: 'Requests' })).toBeVisible();
 		await expect(page.getByText('Series · TMDB 444')).toBeVisible();
 		await expect(page.getByText('Seasons 1, 2')).toBeVisible();
 
@@ -513,8 +491,8 @@ test.describe('download visibility and masked administration', () => {
 						apiKeyConfigured: true,
 						mappedUsers: 3
 					},
-					sonarr: { enabled: false, url: '', apiKeyConfigured: false },
-					radarr: { enabled: false, url: '', apiKeyConfigured: false }
+					sonarr: [],
+					radarr: []
 				},
 				plugins: {
 					homeScreenSections: { enabled: true },
@@ -524,17 +502,14 @@ test.describe('download visibility and masked administration', () => {
 				}
 			}
 		});
-		const settingsResponse = page.waitForResponse((response) =>
-			response.url().endsWith('/api/admin/settings')
+		const seerrResponse = page.waitForResponse((response) =>
+			response.url().endsWith('/api/admin/seerr')
 		);
-		await page.goto('/admin/integrations');
-		const payload = (await (await settingsResponse).json()) as {
-			integrations: Record<string, Record<string, unknown>>;
-		};
+		await page.goto('/admin/seerr');
+		const payload = (await (await seerrResponse).json()) as Record<string, unknown>;
 
-		expect(payload.integrations.seerr).not.toHaveProperty('apiKey');
-		await expect(page.getByRole('heading', { name: 'Integrations' })).toBeVisible();
-		await expect(page.getByText('Key stored')).toBeVisible();
+		expect(payload).not.toHaveProperty('apiKey');
+		await expect(page.getByRole('heading', { name: 'Seerr' })).toBeVisible();
 		await expect(page.getByLabel('Service URL').first()).toHaveValue('http://seerr:5055');
 		await expect(page.getByLabel('API key').first()).toHaveValue('');
 		await expect(page.getByLabel('API key').first()).toHaveAttribute(
@@ -571,7 +546,7 @@ test.describe('mobile shell', () => {
 	test('keeps the media pill and profile menu usable without overlap', async ({ page }) => {
 		await mockAuthenticatedApp(page, { admin: false, userName: 'Nora Viewer' });
 		await page.goto('/home');
-		await expect(page.getByRole('heading', { name: 'Nebula Run' })).toBeVisible();
+		await expect(page.getByText('Nebula Run', { exact: true })).toBeVisible();
 
 		const media = page.getByRole('navigation', { name: 'Media' });
 		const profile = page.getByRole('button', { name: "Open Nora Viewer's profile menu" });

@@ -1,7 +1,7 @@
 import { authenticateRequest } from '$lib/server/auth';
 import { getConfigStore } from '$lib/server/config';
 import { errorResponse } from '$lib/server/errors';
-import { requireIntegration } from '$lib/server/integrations';
+import { requireSeerrIntegration } from '$lib/server/integrations';
 import { resolveSeerrUserId, seerrSearch } from '$lib/server/seerr';
 import { json } from '@sveltejs/kit';
 import { z } from 'zod';
@@ -14,7 +14,7 @@ export const GET: RequestHandler = async ({ request, url, fetch }) => {
 		const query = QuerySchema.parse(url.searchParams.get('q'));
 		const store = getConfigStore();
 		const auth = await authenticateRequest(request, { store, fetcher: fetch });
-		const integration = await requireIntegration(store, 'seerr');
+		const integration = await requireSeerrIntegration(store);
 		const userId = await resolveSeerrUserId(store, auth.user.Id, fetch);
 		return json({ results: await seerrSearch(integration, userId, query, fetch) });
 	} catch (error) {

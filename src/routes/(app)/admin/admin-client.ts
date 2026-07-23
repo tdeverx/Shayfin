@@ -14,6 +14,14 @@ export interface MaskedIntegration {
 	mappedUsers?: number;
 }
 
+export interface MaskedServarrInstance {
+	id: string;
+	label: string;
+	enabled: boolean;
+	url: string;
+	apiKeyConfigured: boolean;
+}
+
 export interface AdminSettings {
 	jellyfin: {
 		publicUrl: string;
@@ -22,7 +30,11 @@ export interface AdminSettings {
 		serverName: string;
 		serverVersion?: string;
 	} | null;
-	integrations: Record<'seerr' | 'sonarr' | 'radarr', MaskedIntegration>;
+	integrations: {
+		seerr: MaskedIntegration;
+		sonarr: MaskedServarrInstance[];
+		radarr: MaskedServarrInstance[];
+	};
 	plugins: {
 		homeScreenSections: { enabled: boolean };
 		mediaBarEnhanced: { enabled: boolean };
@@ -31,28 +43,11 @@ export interface AdminSettings {
 	};
 }
 
-export interface NetworkDiagnostics {
-	origin: string;
-	deployment: {
-		protocol: string;
-		host: string;
-		port: string;
-	};
-	jellyfin: {
-		publicUrl: string;
-		internalUrl: string;
-		publicReachableFromContainer: boolean;
-		internalReachableFromContainer: boolean;
-		cors: 'allowed' | 'blocked' | 'unknown';
-		corsAllowOrigin?: string;
-		mixedContent: boolean;
-		websocketUrl: string;
-	};
-}
-
 export interface DownloadProgress {
 	id: string;
 	service: 'sonarr' | 'radarr';
+	instanceId: string;
+	instanceLabel: string;
 	mediaType: 'series' | 'movie';
 	title: string;
 	providerIds: { tmdbId?: number; tvdbId?: number };
@@ -64,7 +59,11 @@ export interface DownloadProgress {
 
 export interface DownloadResponse {
 	downloads: DownloadProgress[];
-	capabilities: Record<'seerr' | 'sonarr' | 'radarr', CapabilityState>;
+	capabilities: (CapabilityState & {
+		service: 'seerr' | 'sonarr' | 'radarr';
+		instanceId?: string;
+		instanceLabel?: string;
+	})[];
 }
 
 export interface HealthResponse {

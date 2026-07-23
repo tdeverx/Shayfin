@@ -8,16 +8,17 @@
 	import Spotlight from './spotlight.svelte';
 
 	const IMAGE_LEAD_MS = 5_000;
-	const IMAGE_ROTATION_MS = 10_000;
 	const TRAILER_ROTATION_SECONDS = 30;
 
 	let {
 		items,
 		trailer = null,
+		intervalMs = 10_000,
 		onItemChange
 	}: {
 		items: SpotlightModel[];
 		trailer?: HeroTrailer | null;
+		intervalMs?: number;
 		onItemChange?: (id: string) => void;
 	} = $props();
 
@@ -100,7 +101,7 @@
 			const timer = setTimeout(() => (showTrailer = true), Math.max(0, IMAGE_LEAD_MS - elapsed));
 			return () => clearTimeout(timer);
 		}
-		const timer = setTimeout(requestAdvance, Math.max(0, IMAGE_ROTATION_MS - elapsed));
+		const timer = setTimeout(requestAdvance, Math.max(0, Math.max(5_000, intervalMs) - elapsed));
 		return () => clearTimeout(timer);
 	});
 </script>

@@ -1,4 +1,5 @@
 import type { DeviceProfile } from '@jellyfin/sdk/lib/generated-client/models/device-profile';
+import type { PlaybackQuality } from '$lib/app/preferences';
 
 export type PlayMethod = 'DirectPlay' | 'DirectStream' | 'Transcode';
 
@@ -50,6 +51,21 @@ export interface PlayerPlaybackInfoRequest {
 	subtitleStreamIndex?: number | null;
 	mediaSourceId?: string | null;
 	signal?: AbortSignal;
+}
+
+export interface NextUpModel {
+	id: string;
+	title: string;
+	secondary?: string;
+	imageUrl?: string;
+}
+
+export interface PlayerPresentation {
+	title: string;
+	secondary?: string;
+	backdropUrl?: string;
+	posterUrl?: string;
+	logoUrl?: string;
 }
 
 export interface PlayerMediaSegment {
@@ -122,13 +138,19 @@ export interface SubtitleTrack {
 
 export interface VideoPlayerProps {
 	serverUrl: string;
+	serverId?: string;
 	accessToken: string;
 	userId: string;
 	itemId: string;
 	deviceId: string;
 	startTicks?: number | null;
 	nextItemId?: string | null;
+	nextUp?: NextUpModel | null;
+	presentation?: PlayerPresentation;
+	quality?: PlaybackQuality;
+	autoplayNext?: boolean;
 	onNext?: (nextItemId: string) => void | Promise<void>;
+	onSaveDefaultQuality?: (quality: PlaybackQuality) => void;
 	onExit?: () => void | Promise<void>;
 	onThemeAudioStop?: () => void;
 	class?: string;

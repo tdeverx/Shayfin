@@ -21,8 +21,11 @@
 		/>{/if}
 	<div class="absolute inset-0 -z-10 bg-gradient-to-t from-card via-card/85 to-transparent"></div>
 	<Card.Header class="relative mt-auto pt-36 sm:px-7 sm:pt-44">
-		<Card.Title class="text-2xl tracking-tight sm:text-3xl">{section.title}</Card.Title>
-		{#if section.href}<Card.Action
+		<Card.Title
+			class={section.displayTitleText === false ? 'sr-only' : 'text-2xl tracking-tight sm:text-3xl'}
+			>{section.title}</Card.Title
+		>
+		{#if section.href && section.showDetailsMenu !== false}<Card.Action
 				><Button variant="secondary" size="sm" href={section.href}
 					>View collection<ChevronRightIcon data-icon="inline-end" /></Button
 				></Card.Action

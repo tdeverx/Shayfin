@@ -89,6 +89,7 @@ describe('Servarr queue normalization', () => {
 		const downloads = [
 			...normalizeServarrQueue(
 				'radarr',
+				{ id: 'radarr-main', label: 'Radarr main' },
 				[
 					{
 						id: 1,
@@ -103,6 +104,7 @@ describe('Servarr queue normalization', () => {
 			),
 			...normalizeServarrQueue(
 				'sonarr',
+				{ id: 'sonarr-main', label: 'Sonarr main' },
 				[
 					{
 						id: 2,
@@ -138,6 +140,7 @@ describe('Servarr queue normalization', () => {
 	it('filters a normal user queue to provider IDs from their Seerr requests', () => {
 		const downloads = normalizeServarrQueue(
 			'radarr',
+			{ id: 'radarr-main', label: 'Radarr main' },
 			[
 				{ id: 1, movieId: 1, status: 'downloading' },
 				{ id: 2, movieId: 2, status: 'downloading' }

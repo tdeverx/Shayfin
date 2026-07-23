@@ -1,5 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { clearDataCache, deleteCache, readCache, userCacheKey, writeCache } from './data-cache';
+import {
+	clearDataCache,
+	deleteCache,
+	itemEntityKey,
+	markEntitiesStale,
+	patchEntity,
+	readCache,
+	readEntity,
+	readQuery,
+	upsertEntity,
+	userCacheKey,
+	writeCache,
+	writeQuery
+} from './data-cache';
 
 afterEach(() => {
 	clearDataCache();
@@ -24,5 +37,21 @@ describe('data cache', () => {
 		expect(readCache('profile', 2_000)).toEqual({ value: { name: 'Nora' }, stale: true });
 		deleteCache('profile');
 		expect(readCache('profile', 2_000)).toBeNull();
+	});
+
+	it('patches entities optimistically and can roll them back', () => {
+		const key = itemEntityKey('server-1', 'user-1', 'movie-1');
+		upsertEntity(key, { title: 'Movie', favorite: false });
+		const rollback = patchEntity(key, { favorite: true });
+		expect(readEntity<{ favorite: boolean }>(key)?.value.favorite).toBe(true);
+		rollback?.();
+		expect(readEntity<{ favorite: boolean }>(key)?.value.favorite).toBe(false);
+		markEntitiesStale([key]);
+		expect(readEntity(key)?.stale).toBe(true);
+	});
+
+	it('stores bounded paged query state separately from entities', () => {
+		writeQuery('library', { itemIds: ['one'], startIndex: 1, hasMore: true, totalRecordCount: 2 });
+		expect(readQuery('library', 1_000)?.value).toMatchObject({ itemIds: ['one'], hasMore: true });
 	});
 });
