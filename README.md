@@ -24,7 +24,8 @@ Requirements: Docker Engine with Compose v2, and a browser-reachable Jellyfin 10
 
 ```sh
 cp .env.example .env
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
@@ -41,12 +42,18 @@ Day-to-day container commands:
 
 ```sh
 docker compose logs -f shayfin   # follow application logs
-docker compose pull              # fetch a published image, when one is configured
-docker compose up -d --build     # rebuild/update this source checkout
+docker compose pull              # fetch the latest published image
+docker compose up -d             # start or recreate Shayfin
 docker compose down              # stop Shayfin without deleting its data
 ```
 
 Do not add `--volumes` to `docker compose down` unless you intentionally want to erase Shayfin's configuration and return to first-run setup.
+
+### Publishing a release
+
+Push a stable semantic-version tag that exactly matches `package.json`, such as `v0.0.1`. The release workflow validates the application, publishes `linux/amd64` and `linux/arm64` images to `ghcr.io/tdeverx/shayfin`, updates the matching version and `latest` tags, and creates a GitHub Release with generated notes.
+
+After the first image is published, its GitHub package visibility must be changed to **Public** once so users can pull it without signing in. GitHub creates personal-account container packages as private by default.
 
 ### Persistent data
 
@@ -57,7 +64,7 @@ Compose creates the `shayfin-data` volume at `/data`. Back up both files togethe
 
 Seerr, Sonarr, and Radarr API keys are encrypted with AES-256-GCM before being written to `config.json`. Losing `secret.key` makes stored integration credentials unrecoverable. Deleting the volume returns Shayfin to first-run setup.
 
-The runtime container uses a non-root user, drops all Linux capabilities, applies `no-new-privileges`, and mounts the root filesystem read-only. `/data` is its only persistent writable path; `/tmp` is an ephemeral `tmpfs`.
+The runtime container uses a non-root user. `/data` is its persistent configuration path.
 
 ## Jellyfin networking
 
@@ -146,3 +153,9 @@ For integration and player validation, use real Jellyfin/Seerr/Servarr instances
 Shayfin v1 supports one Jellyfin server per instance, Jellyfin accounts only, movies and episodic video, and desktop/mobile browsers.
 
 Deferred: TV remote/focus navigation, user-configurable themes/settings, full Jellyfin server administration, music libraries, Live TV, casting, offline downloads, multi-server switching, bundled TLS, injected plugin pages, Seasonals, Jellystat, Achievement Badges social/economy features, and GetAvatar pool administration.
+
+## License
+
+Shayfin is free software licensed under the [GNU Affero General Public License v3.0 only](LICENSE). You may use, modify, redistribute, host, and commercialize it under those terms. Distributions and modified network deployments must provide the corresponding source as required by the license.
+
+Third-party dependencies and assets remain under their respective licenses. Their source packages and license texts are installed through the dependency lockfile.
